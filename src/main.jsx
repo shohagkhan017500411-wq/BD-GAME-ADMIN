@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
@@ -60,7 +59,8 @@ function App() {
   const [players, setPlayers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [diamondHistory, setDiamondHistory] = useState([]);
+  const [roleHistory, setRoleHistory] = useState([]);
 
   const [query, setQuery] = useState("");
   const [newPlayerId, setNewPlayerId] = useState("");
@@ -109,18 +109,20 @@ function App() {
 
     db.auth.getSession().then(({ data }) => {
       if (!mounted) return;
-      if (data.session) verifyAdmin(data.session);
-      else setBusy(false);
+
+      if (data.session) {
+        verifyAdmin(data.session);
+      } else {
+        setBusy(false);
+      }
     });
 
-    const { data: listener } = db.auth.onAuthStateChange(
-      (event) => {
-        if (event === "SIGNED_OUT") {
-          setSession(null);
-          setBusy(false);
-        }
+    const { data: listener } = db.auth.onAuthStateChange(event => {
+      if (event === "SIGNED_OUT") {
+        setSession(null);
+        setBusy(false);
       }
-    );
+    });
 
     return () => {
       mounted = false;
@@ -157,33 +159,46 @@ function App() {
   async function loadData() {
     if (!db || !session) return;
 
-    const [p, r, o, h] = await Promise.all([
-      db.from("game_players").select("*")
-        .order("created_at", { ascending: false }).limit(300),
+    const [p, r, o, dh, rh] = await Promise.all([
+      db.from("game_players")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(300),
 
-      db.from("player_roles").select(
-        "*, game_players(player_id,player_name,avatar_url)"
-      ),
+      db.from("player_roles")
+        .select("*, game_players(player_id,player_name,avatar_url,v_badge)")
+        .order("created_at", { ascending: false }),
 
-      db.from("reward_orders").select(
-        "*, game_players(player_id,player_name), reward_plans(reward_name,total_diamonds,instant_diamonds,deferred_diamonds,duration_days,daily_diamonds)"
-      ).order("created_at", { ascending: false }).limit(300),
+      db.from("reward_orders")
+        .select("*, game_players(player_id,player_name), reward_plans(reward_name,total_diamonds,instant_diamonds,deferred_diamonds,duration_days,daily_diamonds)")
+        .order("created_at", { ascending: false })
+        .limit(300),
 
-      db.from("diamond_distributions").select("*")
-        .order("distributed_at", { ascending: false }).limit(300)
+      db.from("diamond_distributions")
+        .select("*")
+        .order("distributed_at", { ascending: false })
+        .limit(300),
+
+      db.from("player_role_history")
+        .select("*, game_players(player_id,player_name)")
+        .order("created_at", { ascending: false })
+        .limit(300)
     ]);
 
-    if (p.error) notify(p.error.message);
+    if (p.error) notify("Player: " + p.error.message);
     else setPlayers(p.data || []);
 
-    if (r.error) notify(r.error.message);
+    if (r.error) notify("Role: " + r.error.message);
     else setRoles(r.data || []);
 
-    if (o.error) notify(o.error.message);
+    if (o.error) notify("Order: " + o.error.message);
     else setOrders(o.data || []);
 
-    if (h.error) notify(h.error.message);
-    else setHistory(h.data || []);
+    if (dh.error) notify("Diamond History: " + dh.error.message);
+    else setDiamondHistory(dh.data || []);
+
+    if (rh.error) notify("Role History: " + rh.error.message);
+    else setRoleHistory(rh.data || []);
   }
 
   useEffect(() => {
@@ -208,59 +223,60 @@ function App() {
     loadData();
   }
 
+  // নিরাপদ SQL Function দিয়ে Moderator / Vice দেওয়া
   async function assignRole(e) {
     e.preventDefault();
 
-    const player = players.find(p => p.id === selectedPlayer);
-    if (!player) return notify("Player নির্বাচন করুন।");
+    if (!selectedPlayer) {
+      return notify("Player নির্বাচন করুন।");
+    }
 
-    const { error: roleError } = await db
-      .from("player_roles")
-      .upsert({
-        player_id: player.id,
-        role_name: roleName,
-        assigned_by: session.user.id
-      }, { onConflict: "player_id,role_name" });
+    const { error: roleError } = await db.rpc(
+      "admin_assign_player_role",
+      {
+        p_player_uuid: selectedPlayer,
+        p_role_name: roleName
+      }
+    );
 
     if (roleError) return notify(roleError.message);
-
-    await db.from("player_role_history").insert({
-      player_id: player.id,
-      action: "assigned",
-      role_name: roleName,
-      changed_by: session.user.id
-    });
 
     notify("Role দেওয়া হয়েছে।");
     loadData();
   }
 
-  async function toggleBadge(role) {
-    const { error: updateError } = await db
-      .from("player_roles")
-      .update({ v_badge: !role.v_badge })
-      .eq("id", role.id);
+  // সাধারণ Player-সহ যেকোনো Player-এর V Badge চালু / বন্ধ
+  async function togglePlayerBadge(player) {
+    const { error: badgeError } = await db.rpc(
+      "admin_set_player_v_badge",
+      {
+        p_player_uuid: player.id,
+        p_enabled: !player.v_badge
+      }
+    );
 
-    if (updateError) return notify(updateError.message);
+    if (badgeError) return notify(badgeError.message);
 
-    notify("V Badge আপডেট হয়েছে।");
+    notify(
+      !player.v_badge
+        ? "V Badge চালু হয়েছে।"
+        : "V Badge বন্ধ হয়েছে।"
+    );
+
     loadData();
   }
 
+  // নিরাপদ SQL Function দিয়ে Role সরানো
   async function removeRole(role) {
-    const { error: deleteError } = await db
-      .from("player_roles")
-      .delete()
-      .eq("id", role.id);
+    const { error: deleteError } = await db.rpc(
+      "admin_remove_player_role",
+      {
+        p_player_uuid: role.player_id,
+        p_role_name: role.role_name
+      }
+    );
 
     if (deleteError) return notify(deleteError.message);
-
-    await db.from("player_role_history").insert({
-      player_id: role.player_id,
-      action: "removed",
-      role_name: role.role_name,
-      changed_by: session.user.id
-    });
 
     notify("Role সরানো হয়েছে।");
     loadData();
@@ -318,7 +334,12 @@ function App() {
       }
     }
 
-    notify(status === "approved" ? "Order approve হয়েছে।" : "Order reject হয়েছে।");
+    notify(
+      status === "approved"
+        ? "Order approve হয়েছে।"
+        : "Order reject হয়েছে।"
+    );
+
     loadData();
   }
 
@@ -328,387 +349,532 @@ function App() {
   }
 
   const filteredPlayers = useMemo(() => {
+    const term = query.toLowerCase();
+
     return players.filter(p =>
-      (p.player_id + " " + p.player_name)
+      `${p.player_id} ${p.player_name}`
         .toLowerCase()
-        .includes(query.toLowerCase())
+        .includes(term)
     );
   }, [players, query]);
 
   if (busy) {
-    return <div className="center">
-      <LoaderCircle className="spin" />
-      যাচাই হচ্ছে...
-    </div>;
+    return (
+      <div className="center">
+        <LoaderCircle className="spin" />
+        যাচাই হচ্ছে...
+      </div>
+    );
   }
 
   if (!session) {
-    return <div className="login-wrap">
-      <form className="login-card" onSubmit={login}>
-        <div className="logo"><Gamepad2 size={42}/></div>
-        <h1>BD GAME ADMIN</h1>
-        <p>Secure Owner Login</p>
+    return (
+      <div className="login-wrap">
+        <form className="login-card" onSubmit={login}>
+          <div className="logo"><Gamepad2 size={42} /></div>
+          <h1>BD GAME ADMIN</h1>
+          <p>Secure Owner Login</p>
 
-        {!db && <div className="alert">
-          Supabase configuration অনুপস্থিত।
-        </div>}
+          {!db && (
+            <div className="alert">
+              Supabase configuration অনুপস্থিত।
+            </div>
+          )}
 
-        <label>Admin Email</label>
-        <input
-          type="email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          required
-        />
+          <label>Admin Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            required
+          />
 
-        <label>Password</label>
-        <input
-          type="password"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          required
-        />
+          <label>Password</label>
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            required
+          />
 
-        {error && <div className="alert">{error}</div>}
+          {error && <div className="alert">{error}</div>}
 
-        <button className="primary" disabled={!db}>
-          Login
-        </button>
-        <small>শুধু নির্ধারিত Admin প্রবেশ করতে পারবে।</small>
-      </form>
-    </div>;
+          <button className="primary" disabled={!db}>
+            Login
+          </button>
+
+          <small>শুধু নির্ধারিত Admin প্রবেশ করতে পারবে।</small>
+        </form>
+      </div>
+    );
   }
 
   function dashboard() {
-    return <>
-      <div className="welcome">
-        <div>
-          <h1>Welcome to BD GAME ADMIN</h1>
-          <p>Game Management Control Center</p>
+    return (
+      <>
+        <div className="welcome">
+          <div>
+            <h1>Welcome to BD GAME ADMIN</h1>
+            <p>Game Management Control Center</p>
+          </div>
+          <Crown size={48} />
         </div>
-        <Crown size={48}/>
-      </div>
 
-      <div className="stats">
-        <Stat icon={<Users/>} label="Total Players" value={players.length}/>
-        <Stat icon={<Shield/>} label="Assigned Roles" value={roles.length}/>
-        <Stat icon={<Gem/>} label="Pending Orders" value={orders.filter(o => o.status === "pending").length}/>
-        <Stat icon={<History/>} label="Diamond Records" value={history.length}/>
-      </div>
-
-      <div className="panel">
-        <h3>২১টি Management Section</h3>
-        <div className="tiles">
-          {MODULES.map(([name, Icon]) => (
-            <button className="tile" key={name} onClick={() => setPage(name)}>
-              <Icon/>
-              <span>{name}</span>
-            </button>
-          ))}
+        <div className="stats">
+          <Stat icon={<Users />} label="Total Players" value={players.length} />
+          <Stat icon={<Shield />} label="Assigned Roles" value={roles.length} />
+          <Stat icon={<Gem />} label="Pending Orders" value={orders.filter(o => o.status === "pending").length} />
+          <Stat icon={<History />} label="Role History" value={roleHistory.length} />
         </div>
-      </div>
-    </>;
+
+        <div className="panel">
+          <h3>২১টি Management Section</h3>
+          <div className="tiles">
+            {MODULES.map(([name, Icon]) => (
+              <button
+                className="tile"
+                key={name}
+                onClick={() => setPage(name)}
+              >
+                <Icon />
+                <span>{name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </>
+    );
   }
 
   function playerPage() {
-    return <>
-      <div className="panel">
-        <h3>Player Management</h3>
+    return (
+      <>
+        <div className="panel">
+          <h3>Player Management</h3>
 
-        <div className="search">
-          <Search/>
-          <input
-            placeholder="Player ID বা নাম দিয়ে খুঁজুন"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-          />
-        </div>
+          <div className="search">
+            <Search />
+            <input
+              placeholder="Player ID বা নাম দিয়ে খুঁজুন"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+          </div>
 
-        <form className="inline-form" onSubmit={addPlayer}>
-          <input
-            placeholder="Player ID"
-            value={newPlayerId}
-            onChange={e => setNewPlayerId(e.target.value)}
-            required
-          />
-          <input
-            placeholder="Player Name"
-            value={newPlayerName}
-            onChange={e => setNewPlayerName(e.target.value)}
-            required
-          />
-          <button className="primary"><Plus/> Add Player</button>
-        </form>
+          <form className="inline-form" onSubmit={addPlayer}>
+            <input
+              placeholder="Player ID"
+              value={newPlayerId}
+              onChange={e => setNewPlayerId(e.target.value)}
+              required
+            />
+            <input
+              placeholder="Player Name"
+              value={newPlayerName}
+              onChange={e => setNewPlayerName(e.target.value)}
+              required
+            />
+            <button className="primary">
+              <Plus /> Add Player
+            </button>
+          </form>
 
-        <DataTable
-          headers={["Player ID", "Name", "Status", "Created"]}
-          rows={filteredPlayers.map(p => [
-            p.player_id,
-            p.player_name,
-            p.status,
-            new Date(p.created_at).toLocaleDateString()
-          ])}
-        />
-      </div>
+          <h3>Player List ও V Badge</h3>
 
-      <div className="panel">
-        <h3>Moderator / Vice Roles & V Badge</h3>
-
-        <form className="inline-form" onSubmit={assignRole}>
-          <select
-            value={selectedPlayer}
-            onChange={e => setSelectedPlayer(e.target.value)}
-            required
-          >
-            <option value="">Player নির্বাচন করুন</option>
-            {players.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.player_name} · {p.player_id}
-              </option>
-            ))}
-          </select>
-
-          <select value={roleName} onChange={e => setRoleName(e.target.value)}>
-            <option value="moderator">Moderator</option>
-            <option value="vice">Vice</option>
-          </select>
-
-          <button className="primary"><Plus/> Assign Role</button>
-        </form>
-
-        <div className="order-list">
-          {roles.map(r => (
-            <div className="order" key={r.id}>
-              <div>
-                <b>{r.game_players?.player_name} · {r.game_players?.player_id}</b>
-                <p>
-                  <span className={`role ${r.role_name}`}>
-                    {r.role_name === "vice" ? "VICE" : "MODERATOR"}
+          <div className="order-list">
+            {filteredPlayers.length ? filteredPlayers.map(p => (
+              <div className="order" key={p.id}>
+                <div>
+                  <b>
+                    {p.player_name}
+                    {p.v_badge && <span className="v-badge">V</span>}
+                  </b>
+                  <p>Player ID: {p.player_id}</p>
+                  <span className={`status ${p.status || "active"}`}>
+                    {p.status || "active"}
                   </span>
-                  {r.v_badge && <span className="v-badge">V</span>}
-                </p>
-              </div>
+                </div>
 
-              <div className="actions">
-                <button className="approve" onClick={() => toggleBadge(r)}>
-                  {r.v_badge ? "V Badge Off" : "V Badge On"}
-                </button>
-                <button className="reject" onClick={() => removeRole(r)}>
-                  <Ban/> Remove
-                </button>
+                <div className="actions">
+                  <button
+                    className={p.v_badge ? "reject" : "approve"}
+                    onClick={() => togglePlayerBadge(p)}
+                  >
+                    {p.v_badge ? "V Badge Off" : "V Badge On"}
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            )) : (
+              <p>কোনো Player পাওয়া যায়নি।</p>
+            )}
+          </div>
         </div>
-      </div>
-    </>;
+
+        <div className="panel">
+          <h3>Moderator / Vice Management</h3>
+
+          <form className="inline-form" onSubmit={assignRole}>
+            <select
+              value={selectedPlayer}
+              onChange={e => setSelectedPlayer(e.target.value)}
+              required
+            >
+              <option value="">Player নির্বাচন করুন</option>
+              {players.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.player_name} · {p.player_id}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={roleName}
+              onChange={e => setRoleName(e.target.value)}
+            >
+              <option value="moderator">Moderator</option>
+              <option value="vice">Vice</option>
+            </select>
+
+            <button className="primary">
+              <Plus /> Assign Role
+            </button>
+          </form>
+
+          <div className="order-list">
+            {roles.length ? roles.map(r => (
+              <div className="order" key={r.id}>
+                <div>
+                  <b>
+                    {r.game_players?.player_name || "Player"}
+                    {" · "}
+                    {r.game_players?.player_id || ""}
+                    {r.game_players?.v_badge && (
+                      <span className="v-badge">V</span>
+                    )}
+                  </b>
+
+                  <p>
+                    <span className={`role ${r.role_name}`}>
+                      {r.role_name === "vice" ? "VICE" : "MODERATOR"}
+                    </span>
+                  </p>
+                </div>
+
+                <div className="actions">
+                  <button
+                    className="reject"
+                    onClick={() => removeRole(r)}
+                  >
+                    <Ban /> Remove Role
+                  </button>
+                </div>
+              </div>
+            )) : (
+              <p>এখনো কোনো Moderator বা Vice নেই।</p>
+            )}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h3>Player Role History</h3>
+          <DataTable
+            headers={["Player", "Player ID", "Action", "Role", "Date"]}
+            rows={roleHistory.map(h => [
+              h.game_players?.player_name || "Player",
+              h.game_players?.player_id || h.player_id,
+              h.action || "-",
+              h.role_name || "V Badge",
+              new Date(h.created_at).toLocaleString()
+            ])}
+          />
+        </div>
+      </>
+    );
   }
 
   function rewardPage() {
-    return <>
-      <div className="panel">
-        <h3>Diamond Reward Management</h3>
-        <p className="muted">
-          Reward order তৈরি ও পর্যালোচনা করুন। বাস্তব গেমে Diamond পাঠাতে
-          অনুমোদিত server API সংযোগ লাগবে।
-        </p>
+    return (
+      <>
+        <div className="panel">
+          <h3>Diamond Reward Management</h3>
 
-        <form className="inline-form" onSubmit={createOrder}>
-          <select
-            value={orderPlayer}
-            onChange={e => setOrderPlayer(e.target.value)}
-            required
-          >
-            <option value="">Player নির্বাচন করুন</option>
-            {players.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.player_name} · {p.player_id}
-              </option>
-            ))}
-          </select>
+          <p className="muted">
+            Reward order তৈরি ও পর্যালোচনা করুন। বাস্তব গেমে Diamond পাঠাতে
+            অনুমোদিত server API সংযোগ লাগবে।
+          </p>
 
-          <select value={planId} onChange={e => setPlanId(e.target.value)}>
+          <form className="inline-form" onSubmit={createOrder}>
+            <select
+              value={orderPlayer}
+              onChange={e => setOrderPlayer(e.target.value)}
+              required
+            >
+              <option value="">Player নির্বাচন করুন</option>
+              {players.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.player_name} · {p.player_id}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={planId}
+              onChange={e => setPlanId(e.target.value)}
+            >
+              {PLANS.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.label} · {p.total} Diamond
+                </option>
+              ))}
+            </select>
+
+            <button className="primary">
+              <Plus /> Create Order
+            </button>
+          </form>
+
+          <div className="plan-grid">
             {PLANS.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.label} · {p.total} Diamond
-              </option>
-            ))}
-          </select>
-
-          <button className="primary"><Plus/> Create Order</button>
-        </form>
-
-        <div className="plan-grid">
-          {PLANS.map(p => (
-            <div className="plan" key={p.id}>
-              <b>{p.label}</b>
-              <strong>{p.total} 💎</strong>
-              <span>সঙ্গে সঙ্গে: {p.instant}</span>
-              <span>বাকি: {p.deferred}</span>
-              <span>
-                সময়: {p.days} দিন
-                {p.daily ? ` · প্রতিদিন ${p.daily}` : ""}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <h3>Reward Orders</h3>
-        <div className="order-list">
-          {orders.map(o => (
-            <div className="order" key={o.id}>
-              <div>
-                <b>
-                  {o.game_players?.player_name} · {o.game_players?.player_id}
-                </b>
-                <p>
-                  {o.reward_plans?.reward_name} ·
-                  {o.reward_plans?.total_diamonds} Diamond
-                </p>
-                <span className={`status ${o.status}`}>{o.status}</span>
+              <div className="plan" key={p.id}>
+                <b>{p.label}</b>
+                <strong>{p.total} 💎</strong>
+                <span>সঙ্গে সঙ্গে: {p.instant}</span>
+                <span>বাকি: {p.deferred}</span>
+                <span>
+                  সময়: {p.days} দিন
+                  {p.daily ? ` · প্রতিদিন ${p.daily}` : ""}
+                </span>
               </div>
+            ))}
+          </div>
 
-              {o.status === "pending" && (
-                <div className="actions">
-                  <button className="approve" onClick={() => reviewOrder(o, "approved")}>
-                    <Check/> Approve
-                  </button>
-                  <button className="reject" onClick={() => reviewOrder(o, "rejected")}>
-                    <X/> Reject
-                  </button>
+          <h3>Reward Orders</h3>
+
+          <div className="order-list">
+            {orders.map(o => (
+              <div className="order" key={o.id}>
+                <div>
+                  <b>
+                    {o.game_players?.player_name}
+                    {" · "}
+                    {o.game_players?.player_id}
+                  </b>
+                  <p>
+                    {o.reward_plans?.reward_name} ·
+                    {o.reward_plans?.total_diamonds} Diamond
+                  </p>
+                  <span className={`status ${o.status}`}>
+                    {o.status}
+                  </span>
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="panel">
-        <h3>Diamond Distribution History</h3>
-        <DataTable
-          headers={["Player ID", "Diamonds", "Type", "Date"]}
-          rows={history.map(h => [
-            h.player_id,
-            h.diamonds,
-            h.distribution_type,
-            new Date(h.distributed_at).toLocaleString()
-          ])}
-        />
-      </div>
-    </>;
+                {o.status === "pending" && (
+                  <div className="actions">
+                    <button
+                      className="approve"
+                      onClick={() => reviewOrder(o, "approved")}
+                    >
+                      <Check /> Approve
+                    </button>
+                    <button
+                      className="reject"
+                      onClick={() => reviewOrder(o, "rejected")}
+                    >
+                      <X /> Reject
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel">
+          <h3>Diamond Distribution History</h3>
+          <DataTable
+            headers={["Player ID", "Diamonds", "Type", "Date"]}
+            rows={diamondHistory.map(h => [
+              h.player_id,
+              h.diamonds,
+              h.distribution_type,
+              new Date(h.distributed_at).toLocaleString()
+            ])}
+          />
+        </div>
+      </>
+    );
   }
 
   function otherPage() {
     if (page === "Security & Reports Management") {
-      return <div className="panel">
-        <h3>Security & Reports Management</h3>
-        <p>Owner ID: <code>{OWNER_ID}</code></p>
-        <p>Admin verification: Supabase Auth + is_admin() + RLS</p>
-        <p>Moderator ও Vice-কে Admin access দেওয়া হয়নি।</p>
-      </div>;
+      return (
+        <div className="panel">
+          <h3>Security & Reports Management</h3>
+          <p>Owner ID: <code>{OWNER_ID}</code></p>
+          <p>Admin verification: Supabase Auth + is_admin() + RLS</p>
+          <p>Moderator ও Vice-কে Admin access দেওয়া হয়নি।</p>
+        </div>
+      );
     }
 
-    if (page === "Chat & Support Management" || page === "Notification Management") {
-      return <div className="panel">
+    if (
+      page === "Chat & Support Management" ||
+      page === "Notification Management"
+    ) {
+      return (
+        <div className="panel">
+          <h3>{page}</h3>
+          <p>এখানে Chat ও Notification-এর প্রাথমিক পেজ রাখা হয়েছে।</p>
+          <p className="muted">
+            Player App এবং message delivery backend সংযোগ না হওয়া পর্যন্ত
+            মেসেজ পাঠানো বা Notification পৌঁছানো চালু হবে না।
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="panel">
         <h3>{page}</h3>
-        <p>এখানে Chat ও Notification-এর প্রাথমিক পেজ রাখা হয়েছে।</p>
+        <p>এই বিভাগের প্রাথমিক পেজ তৈরি হয়েছে।</p>
         <p className="muted">
-          Player App এবং message delivery backend সংযোগ না হওয়া পর্যন্ত
-          মেসেজ পাঠানো বা Notification পৌঁছানো চালু হবে না।
+          বাস্তব গেমের তথ্য ও API সংযোগের পর এই মডিউলের কাজ চালু হবে।
         </p>
-      </div>;
-    }
-
-    return <div className="panel">
-      <h3>{page}</h3>
-      <p>এই বিভাগের প্রাথমিক পেজ তৈরি হয়েছে।</p>
-      <p className="muted">
-        বাস্তব গেমের তথ্য ও API সংযোগের পর এই মডিউলের কাজ চালু হবে।
-      </p>
-    </div>;
+      </div>
+    );
   }
 
   let content;
-  if (page === "Game Dashboard") content = dashboard();
-  else if (page === "Player Management") content = playerPage();
-  else if (page === "Diamond & Coin Management" || page === "Diamond Send Management") content = rewardPage();
-  else content = otherPage();
 
-  return <div className="layout">
-    <aside className={`sidebar ${mobile ? "open" : ""}`}>
-      <div className="brand">
-        <Gamepad2/>
-        <div><b>BD GAME</b><small>ADMIN PANEL</small></div>
-        <button className="icon-btn mobile-close" onClick={() => setMobile(false)}><X/></button>
-      </div>
+  if (page === "Game Dashboard") {
+    content = dashboard();
+  } else if (page === "Player Management") {
+    content = playerPage();
+  } else if (
+    page === "Diamond & Coin Management" ||
+    page === "Diamond Send Management"
+  ) {
+    content = rewardPage();
+  } else {
+    content = otherPage();
+  }
 
-      <div className="nav-caption">MANAGEMENT</div>
-
-      <nav>
-        {MODULES.map(([name, Icon], i) => (
+  return (
+    <div className="layout">
+      <aside className={`sidebar ${mobile ? "open" : ""}`}>
+        <div className="brand">
+          <Gamepad2 />
+          <div>
+            <b>BD GAME</b>
+            <small>ADMIN PANEL</small>
+          </div>
           <button
-            key={name}
-            className={`nav-item ${page === name ? "selected" : ""}`}
-            onClick={() => { setPage(name); setMobile(false); }}
+            className="icon-btn mobile-close"
+            onClick={() => setMobile(false)}
           >
-            <Icon size={17}/>
-            <span>{name}</span>
-            <small>{String(i + 1).padStart(2, "0")}</small>
+            <X />
           </button>
-        ))}
-      </nav>
-
-      <button className="logout" onClick={logout}>
-        <LogOut size={17}/> Logout
-      </button>
-    </aside>
-
-    <main className="main">
-      <header className="top">
-        <button className="icon-btn mobile-open" onClick={() => setMobile(true)}>
-          <Menu/>
-        </button>
-        <div>
-          <h2>{page}</h2>
-          <small>BD GAME ADMIN / {page}</small>
         </div>
-        <div className="owner"><Crown size={17}/> OWNER ADMIN</div>
-        <button className="icon-btn" onClick={loadData} title="Refresh">
-          <RefreshCw size={17}/>
+
+        <div className="nav-caption">MANAGEMENT</div>
+
+        <nav>
+          {MODULES.map(([name, Icon], i) => (
+            <button
+              key={name}
+              className={`nav-item ${page === name ? "selected" : ""}`}
+              onClick={() => {
+                setPage(name);
+                setMobile(false);
+              }}
+            >
+              <Icon size={17} />
+              <span>{name}</span>
+              <small>{String(i + 1).padStart(2, "0")}</small>
+            </button>
+          ))}
+        </nav>
+
+        <button className="logout" onClick={logout}>
+          <LogOut size={17} /> Logout
         </button>
-      </header>
+      </aside>
 
-      {content}
-      <footer>BD GAME ADMIN © 2026 · Private Admin Console</footer>
-    </main>
+      <main className="main">
+        <header className="top">
+          <button
+            className="icon-btn mobile-open"
+            onClick={() => setMobile(true)}
+          >
+            <Menu />
+          </button>
 
-    {notice && <div className="toast">{notice}</div>}
-  </div>;
+          <div>
+            <h2>{page}</h2>
+            <small>BD GAME ADMIN / {page}</small>
+          </div>
+
+          <div className="owner">
+            <Crown size={17} /> OWNER ADMIN
+          </div>
+
+          <button
+            className="icon-btn"
+            onClick={loadData}
+            title="Refresh"
+          >
+            <RefreshCw size={17} />
+          </button>
+        </header>
+
+        {content}
+
+        <footer>
+          BD GAME ADMIN © 2026 · Private Admin Console
+        </footer>
+      </main>
+
+      {notice && <div className="toast">{notice}</div>}
+    </div>
+  );
 }
 
 function Stat({ icon, label, value }) {
-  return <div className="stat">
-    <div>{icon}</div>
-    <span>{label}</span>
-    <b>{value}</b>
-  </div>;
+  return (
+    <div className="stat">
+      <div>{icon}</div>
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
+  );
 }
 
 function DataTable({ headers, rows }) {
-  return <div className="table-wrap">
-    <table>
-      <thead>
-        <tr>{headers.map(h => <th key={h}>{h}</th>)}</tr>
-      </thead>
-      <tbody>
-        {rows.length ? rows.map((r, i) => (
-          <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>
-        )) : (
-          <tr><td colSpan={headers.length}>কোনো তথ্য পাওয়া যায়নি</td></tr>
-        )}
-      </tbody>
-    </table>
-  </div>;
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            {headers.map(h => <th key={h}>{h}</th>)}
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.length ? rows.map((r, i) => (
+            <tr key={i}>
+              {r.map((c, j) => <td key={j}>{c}</td>)}
+            </tr>
+          )) : (
+            <tr>
+              <td colSpan={headers.length}>
+                কোনো তথ্য পাওয়া যায়নি
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
-createRoot(document.getElementById("root")).render(<App/>);
+createRoot(document.getElementById("root")).render(<App />);
