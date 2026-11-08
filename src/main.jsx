@@ -7,7 +7,7 @@ import {
   Search, Send, Settings, Shield, ShieldCheck,
   Sparkles, Sword, Trophy, UserCog, Users, X,
   Map, ShoppingBag, Palette, LoaderCircle,
-  Plus, RefreshCw, Ban, History
+  Plus, RefreshCw, Ban, History, Award
 } from "lucide-react";
 import "./style.css";
 
@@ -59,7 +59,7 @@ function App() {
   const [players, setPlayers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [diamondHistory, setDiamondHistory] = useState([]);
+  const [history, setHistory] = useState([]);
   const [roleHistory, setRoleHistory] = useState([]);
 
   const [query, setQuery] = useState("");
@@ -159,15 +159,14 @@ function App() {
   async function loadData() {
     if (!db || !session) return;
 
-    const [p, r, o, dh, rh] = await Promise.all([
+    const [p, r, o, h, rh] = await Promise.all([
       db.from("game_players")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(300),
 
       db.from("player_roles")
-        .select("*, game_players(player_id,player_name,avatar_url,v_badge)")
-        .order("created_at", { ascending: false }),
+        .select("*, game_players(player_id,player_name,avatar_url,v_badge)"),
 
       db.from("reward_orders")
         .select("*, game_players(player_id,player_name), reward_plans(reward_name,total_diamonds,instant_diamonds,deferred_diamonds,duration_days,daily_diamonds)")
@@ -180,24 +179,24 @@ function App() {
         .limit(300),
 
       db.from("player_role_history")
-        .select("*, game_players(player_id,player_name)")
+        .select("*")
         .order("created_at", { ascending: false })
         .limit(300)
     ]);
 
-    if (p.error) notify("Player: " + p.error.message);
+    if (p.error) notify(p.error.message);
     else setPlayers(p.data || []);
 
-    if (r.error) notify("Role: " + r.error.message);
+    if (r.error) notify(r.error.message);
     else setRoles(r.data || []);
 
-    if (o.error) notify("Order: " + o.error.message);
+    if (o.error) notify(o.error.message);
     else setOrders(o.data || []);
 
-    if (dh.error) notify("Diamond History: " + dh.error.message);
-    else setDiamondHistory(dh.data || []);
+    if (h.error) notify(h.error.message);
+    else setHistory(h.data || []);
 
-    if (rh.error) notify("Role History: " + rh.error.message);
+    if (rh.error) notify(rh.error.message);
     else setRoleHistory(rh.data || []);
   }
 
@@ -223,7 +222,6 @@ function App() {
     loadData();
   }
 
-  // নিরাপদ SQL Function দিয়ে Moderator / Vice দেওয়া
   async function assignRole(e) {
     e.preventDefault();
 
@@ -241,11 +239,10 @@ function App() {
 
     if (roleError) return notify(roleError.message);
 
-    notify("Role দেওয়া হয়েছে।");
+    notify("Role সফলভাবে দেওয়া হয়েছে।");
     loadData();
   }
 
-  // সাধারণ Player-সহ যেকোনো Player-এর V Badge চালু / বন্ধ
   async function togglePlayerBadge(player) {
     const { error: badgeError } = await db.rpc(
       "admin_set_player_v_badge",
@@ -257,16 +254,14 @@ function App() {
 
     if (badgeError) return notify(badgeError.message);
 
-    notify(
-      !player.v_badge
-        ? "V Badge চালু হয়েছে।"
-        : "V Badge বন্ধ হয়েছে।"
+    notify(player.v_badge
+      ? "V Badge সরানো হয়েছে।"
+      : "V Badge দেওয়া হয়েছে।"
     );
 
     loadData();
   }
 
-  // নিরাপদ SQL Function দিয়ে Role সরানো
   async function removeRole(role) {
     const { error: deleteError } = await db.rpc(
       "admin_remove_player_role",
@@ -285,7 +280,9 @@ function App() {
   async function createOrder(e) {
     e.preventDefault();
 
-    if (!orderPlayer) return notify("Player নির্বাচন করুন।");
+    if (!orderPlayer) {
+      return notify("Player নির্বাচন করুন।");
+    }
 
     const { error: orderError } = await db
       .from("reward_orders")
@@ -349,14 +346,16 @@ function App() {
   }
 
   const filteredPlayers = useMemo(() => {
-    const term = query.toLowerCase();
-
     return players.filter(p =>
-      `${p.player_id} ${p.player_name}`
+      `${p.player_id || ""} ${p.player_name || ""}`
         .toLowerCase()
-        .includes(term)
+        .includes(query.toLowerCase())
     );
   }, [players, query]);
+
+  function getPlayer(playerUuid) {
+    return players.find(p => p.id === playerUuid);
+  }
 
   if (busy) {
     return (
@@ -371,7 +370,10 @@ function App() {
     return (
       <div className="login-wrap">
         <form className="login-card" onSubmit={login}>
-          <div className="logo"><Gamepad2 size={42} /></div>
+          <div className="logo">
+            <Gamepad2 size={42} />
+          </div>
+
           <h1>BD GAME ADMIN</h1>
           <p>Secure Owner Login</p>
 
@@ -403,7 +405,9 @@ function App() {
             Login
           </button>
 
-          <small>শুধু নির্ধারিত Admin প্রবেশ করতে পারবে।</small>
+          <small>
+            শুধু নির্ধারিত Admin প্রবেশ করতে পারবে।
+          </small>
         </form>
       </div>
     );
@@ -424,11 +428,12 @@ function App() {
           <Stat icon={<Users />} label="Total Players" value={players.length} />
           <Stat icon={<Shield />} label="Assigned Roles" value={roles.length} />
           <Stat icon={<Gem />} label="Pending Orders" value={orders.filter(o => o.status === "pending").length} />
-          <Stat icon={<History />} label="Role History" value={roleHistory.length} />
+          <Stat icon={<History />} label="Diamond Records" value={history.length} />
         </div>
 
         <div className="panel">
           <h3>২১টি Management Section</h3>
+
           <div className="tiles">
             {MODULES.map(([name, Icon]) => (
               <button
@@ -468,46 +473,42 @@ function App() {
               onChange={e => setNewPlayerId(e.target.value)}
               required
             />
+
             <input
               placeholder="Player Name"
               value={newPlayerName}
               onChange={e => setNewPlayerName(e.target.value)}
               required
             />
+
             <button className="primary">
               <Plus /> Add Player
             </button>
           </form>
 
-          <h3>Player List ও V Badge</h3>
-
-          <div className="order-list">
-            {filteredPlayers.length ? filteredPlayers.map(p => (
-              <div className="order" key={p.id}>
-                <div>
-                  <b>
-                    {p.player_name}
-                    {p.v_badge && <span className="v-badge">V</span>}
-                  </b>
-                  <p>Player ID: {p.player_id}</p>
-                  <span className={`status ${p.status || "active"}`}>
-                    {p.status || "active"}
-                  </span>
-                </div>
-
-                <div className="actions">
-                  <button
-                    className={p.v_badge ? "reject" : "approve"}
-                    onClick={() => togglePlayerBadge(p)}
-                  >
-                    {p.v_badge ? "V Badge Off" : "V Badge On"}
-                  </button>
-                </div>
-              </div>
-            )) : (
-              <p>কোনো Player পাওয়া যায়নি।</p>
-            )}
-          </div>
+          <DataTable
+            headers={["Avatar", "Player ID", "Name", "V Badge", "Status", "Created"]}
+            rows={filteredPlayers.map(p => [
+              p.avatar_url
+                ? <img className="player-avatar" src={p.avatar_url} alt="Player" />
+                : "—",
+              p.player_id,
+              <>
+                {p.player_name}
+                {p.v_badge && <span className="v-badge">V</span>}
+              </>,
+              <button
+                className={p.v_badge ? "approve" : "reject"}
+                onClick={() => togglePlayerBadge(p)}
+              >
+                {p.v_badge ? "Badge Off" : "Badge On"}
+              </button>,
+              p.status || "active",
+              p.created_at
+                ? new Date(p.created_at).toLocaleDateString()
+                : "—"
+            ])}
+          />
         </div>
 
         <div className="panel">
@@ -541,16 +542,12 @@ function App() {
           </form>
 
           <div className="order-list">
-            {roles.length ? roles.map(r => (
+            {roles.map(r => (
               <div className="order" key={r.id}>
                 <div>
                   <b>
-                    {r.game_players?.player_name || "Player"}
-                    {" · "}
-                    {r.game_players?.player_id || ""}
-                    {r.game_players?.v_badge && (
-                      <span className="v-badge">V</span>
-                    )}
+                    {r.game_players?.player_name || "Player"} ·
+                    {" "}{r.game_players?.player_id || ""}
                   </b>
 
                   <p>
@@ -569,23 +566,32 @@ function App() {
                   </button>
                 </div>
               </div>
-            )) : (
-              <p>এখনো কোনো Moderator বা Vice নেই।</p>
+            ))}
+
+            {!roles.length && (
+              <p className="muted">কোনো Role দেওয়া হয়নি।</p>
             )}
           </div>
         </div>
 
         <div className="panel">
           <h3>Player Role History</h3>
+
           <DataTable
             headers={["Player", "Player ID", "Action", "Role", "Date"]}
-            rows={roleHistory.map(h => [
-              h.game_players?.player_name || "Player",
-              h.game_players?.player_id || h.player_id,
-              h.action || "-",
-              h.role_name || "V Badge",
-              new Date(h.created_at).toLocaleString()
-            ])}
+            rows={roleHistory.map(h => {
+              const player = getPlayer(h.player_id);
+
+              return [
+                player?.player_name || "Player",
+                player?.player_id || h.player_id,
+                h.action || "-",
+                h.role_name || "V Badge",
+                h.created_at
+                  ? new Date(h.created_at).toLocaleString()
+                  : "—"
+              ];
+            })}
           />
         </div>
       </>
@@ -599,8 +605,8 @@ function App() {
           <h3>Diamond Reward Management</h3>
 
           <p className="muted">
-            Reward order তৈরি ও পর্যালোচনা করুন। বাস্তব গেমে Diamond পাঠাতে
-            অনুমোদিত server API সংযোগ লাগবে।
+            Reward order তৈরি ও পর্যালোচনা করুন।
+            বাস্তব গেমে Diamond পাঠাতে অনুমোদিত server API সংযোগ লাগবে।
           </p>
 
           <form className="inline-form" onSubmit={createOrder}>
@@ -655,14 +661,15 @@ function App() {
               <div className="order" key={o.id}>
                 <div>
                   <b>
-                    {o.game_players?.player_name}
-                    {" · "}
-                    {o.game_players?.player_id}
+                    {o.game_players?.player_name} ·
+                    {" "}{o.game_players?.player_id}
                   </b>
+
                   <p>
                     {o.reward_plans?.reward_name} ·
-                    {o.reward_plans?.total_diamonds} Diamond
+                    {" "}{o.reward_plans?.total_diamonds} Diamond
                   </p>
+
                   <span className={`status ${o.status}`}>
                     {o.status}
                   </span>
@@ -676,6 +683,7 @@ function App() {
                     >
                       <Check /> Approve
                     </button>
+
                     <button
                       className="reject"
                       onClick={() => reviewOrder(o, "rejected")}
@@ -691,13 +699,16 @@ function App() {
 
         <div className="panel">
           <h3>Diamond Distribution History</h3>
+
           <DataTable
             headers={["Player ID", "Diamonds", "Type", "Date"]}
-            rows={diamondHistory.map(h => [
+            rows={history.map(h => [
               h.player_id,
               h.diamonds,
               h.distribution_type,
-              new Date(h.distributed_at).toLocaleString()
+              h.distributed_at
+                ? new Date(h.distributed_at).toLocaleString()
+                : "—"
             ])}
           />
         </div>
@@ -764,10 +775,12 @@ function App() {
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
         <div className="brand">
           <Gamepad2 />
+
           <div>
             <b>BD GAME</b>
             <small>ADMIN PANEL</small>
           </div>
+
           <button
             className="icon-btn mobile-close"
             onClick={() => setMobile(false)}
