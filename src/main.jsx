@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
@@ -7,8 +8,9 @@ import {
   Search, Send, Settings, Shield, ShieldCheck,
   Sparkles, Sword, Trophy, UserCog, Users, X,
   Map, ShoppingBag, Palette, LoaderCircle,
-  Plus, RefreshCw, Ban, History, Award
+  Plus, RefreshCw, Ban, History
 } from "lucide-react";
+import MasterControl from "./MasterControl";
 import "./style.css";
 
 const URL = import.meta.env.VITE_SUPABASE_URL;
@@ -38,7 +40,8 @@ const MODULES = [
   ["Game Settings Management", Settings],
   ["Emote Management", Sparkles],
   ["Animation Management", Activity],
-  ["Diamond Send Management", Send]
+  ["Diamond Send Management", Send],
+  ["AI System", Sparkles]
 ];
 
 const PLANS = [
@@ -109,12 +112,8 @@ function App() {
 
     db.auth.getSession().then(({ data }) => {
       if (!mounted) return;
-
-      if (data.session) {
-        verifyAdmin(data.session);
-      } else {
-        setBusy(false);
-      }
+      if (data.session) verifyAdmin(data.session);
+      else setBusy(false);
     });
 
     const { data: listener } = db.auth.onAuthStateChange(event => {
@@ -254,9 +253,10 @@ function App() {
 
     if (badgeError) return notify(badgeError.message);
 
-    notify(player.v_badge
-      ? "V Badge সরানো হয়েছে।"
-      : "V Badge দেওয়া হয়েছে।"
+    notify(
+      player.v_badge
+        ? "V Badge সরানো হয়েছে।"
+        : "V Badge দেওয়া হয়েছে।"
     );
 
     loadData();
@@ -432,8 +432,7 @@ function App() {
         </div>
 
         <div className="panel">
-          <h3>২১টি Management Section</h3>
-
+          <h3>২২টি Management Section</h3>
           <div className="tiles">
             {MODULES.map(([name, Icon]) => (
               <button
@@ -473,14 +472,12 @@ function App() {
               onChange={e => setNewPlayerId(e.target.value)}
               required
             />
-
             <input
               placeholder="Player Name"
               value={newPlayerName}
               onChange={e => setNewPlayerName(e.target.value)}
               required
             />
-
             <button className="primary">
               <Plus /> Add Player
             </button>
@@ -549,7 +546,6 @@ function App() {
                     {r.game_players?.player_name || "Player"} ·
                     {" "}{r.game_players?.player_id || ""}
                   </b>
-
                   <p>
                     <span className={`role ${r.role_name}`}>
                       {r.role_name === "vice" ? "VICE" : "MODERATOR"}
@@ -558,10 +554,7 @@ function App() {
                 </div>
 
                 <div className="actions">
-                  <button
-                    className="reject"
-                    onClick={() => removeRole(r)}
-                  >
+                  <button className="reject" onClick={() => removeRole(r)}>
                     <Ban /> Remove Role
                   </button>
                 </div>
@@ -576,12 +569,10 @@ function App() {
 
         <div className="panel">
           <h3>Player Role History</h3>
-
           <DataTable
             headers={["Player", "Player ID", "Action", "Role", "Date"]}
             rows={roleHistory.map(h => {
               const player = getPlayer(h.player_id);
-
               return [
                 player?.player_name || "Player",
                 player?.player_id || h.player_id,
@@ -603,7 +594,6 @@ function App() {
       <>
         <div className="panel">
           <h3>Diamond Reward Management</h3>
-
           <p className="muted">
             Reward order তৈরি ও পর্যালোচনা করুন।
             বাস্তব গেমে Diamond পাঠাতে অনুমোদিত server API সংযোগ লাগবে।
@@ -655,7 +645,6 @@ function App() {
           </div>
 
           <h3>Reward Orders</h3>
-
           <div className="order-list">
             {orders.map(o => (
               <div className="order" key={o.id}>
@@ -664,30 +653,19 @@ function App() {
                     {o.game_players?.player_name} ·
                     {" "}{o.game_players?.player_id}
                   </b>
-
                   <p>
                     {o.reward_plans?.reward_name} ·
                     {" "}{o.reward_plans?.total_diamonds} Diamond
                   </p>
-
-                  <span className={`status ${o.status}`}>
-                    {o.status}
-                  </span>
+                  <span className={`status ${o.status}`}>{o.status}</span>
                 </div>
 
                 {o.status === "pending" && (
                   <div className="actions">
-                    <button
-                      className="approve"
-                      onClick={() => reviewOrder(o, "approved")}
-                    >
+                    <button className="approve" onClick={() => reviewOrder(o, "approved")}>
                       <Check /> Approve
                     </button>
-
-                    <button
-                      className="reject"
-                      onClick={() => reviewOrder(o, "rejected")}
-                    >
+                    <button className="reject" onClick={() => reviewOrder(o, "rejected")}>
                       <X /> Reject
                     </button>
                   </div>
@@ -699,7 +677,6 @@ function App() {
 
         <div className="panel">
           <h3>Diamond Distribution History</h3>
-
           <DataTable
             headers={["Player ID", "Diamonds", "Type", "Date"]}
             rows={history.map(h => [
@@ -757,7 +734,9 @@ function App() {
 
   let content;
 
-  if (page === "Game Dashboard") {
+  if (page === "AI System") {
+    content = <MasterControl />;
+  } else if (page === "Game Dashboard") {
     content = dashboard();
   } else if (page === "Player Management") {
     content = playerPage();
@@ -775,12 +754,10 @@ function App() {
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
         <div className="brand">
           <Gamepad2 />
-
           <div>
             <b>BD GAME</b>
             <small>ADMIN PANEL</small>
           </div>
-
           <button
             className="icon-btn mobile-close"
             onClick={() => setMobile(false)}
@@ -831,11 +808,7 @@ function App() {
             <Crown size={17} /> OWNER ADMIN
           </div>
 
-          <button
-            className="icon-btn"
-            onClick={loadData}
-            title="Refresh"
-          >
+          <button className="icon-btn" onClick={loadData} title="Refresh">
             <RefreshCw size={17} />
           </button>
         </header>
@@ -867,11 +840,8 @@ function DataTable({ headers, rows }) {
     <div className="table-wrap">
       <table>
         <thead>
-          <tr>
-            {headers.map(h => <th key={h}>{h}</th>)}
-          </tr>
+          <tr>{headers.map(h => <th key={h}>{h}</th>)}</tr>
         </thead>
-
         <tbody>
           {rows.length ? rows.map((r, i) => (
             <tr key={i}>
@@ -879,9 +849,7 @@ function DataTable({ headers, rows }) {
             </tr>
           )) : (
             <tr>
-              <td colSpan={headers.length}>
-                কোনো তথ্য পাওয়া যায়নি
-              </td>
+              <td colSpan={headers.length}>কোনো তথ্য পাওয়া যায়নি</td>
             </tr>
           )}
         </tbody>
