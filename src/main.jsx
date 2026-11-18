@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
@@ -230,6 +229,10 @@ function App() {
   async function loadData() {
     if (!db || !session) return;
 
+    // Player App-এর তথ্য স্বাধীনভাবে লোড হবে।
+    // Supabase-এর অন্য টেবিলের জন্য অপেক্ষা করবে না।
+    void loadAppwritePlayers(session);
+
     const [p, r, o, h, rh] = await Promise.all([
       db.from("game_players")
         .select("*")
@@ -269,8 +272,6 @@ function App() {
 
     if (rh.error) notify(rh.error.message);
     else setRoleHistory(rh.data || []);
-
-    await loadAppwritePlayers(session);
   }
 
   useEffect(() => {
@@ -347,8 +348,7 @@ function App() {
 
     if (deleteError) return notify(deleteError.message);
 
-    notify("Role সরানো হয়েছে।");
-    loadData();
+    notify("Role সরানো হয়েছে।");loadData();
   }
 
   async function createOrder(e) {
@@ -697,9 +697,7 @@ function App() {
             <button className="primary">
               <Plus /> Assign Role
             </button>
-          </form>
-
-          <div className="order-list">
+          </form><div className="order-list">
             {roles.map(r => (
               <div className="order" key={r.id}>
                 <div>
