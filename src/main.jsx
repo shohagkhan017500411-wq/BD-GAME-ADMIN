@@ -19,6 +19,9 @@ const db = URL && KEY ? createClient(URL, KEY) : null;
 
 const OWNER_ID = "3fcee17a-fd33-4d0e-97cf-7ae35c9eb820";
 
+const PLAYER_API =
+  "https://bd-game.shohagkhan017500411.workers.dev/api/admin/players";
+
 const MODULES = [
   ["Game Dashboard", LayoutDashboard],
   ["Player Management", Users],
@@ -64,6 +67,12 @@ function App() {
   const [orders, setOrders] = useState([]);
   const [history, setHistory] = useState([]);
   const [roleHistory, setRoleHistory] = useState([]);
+
+  // Live Player App data
+  const [appwritePlayers, setAppwritePlayers] = useState([]);
+  const [appwriteTotal, setAppwriteTotal] = useState(0);
+  const [appwriteStatus, setAppwriteStatus] = useState("এখনো সংযোগ পরীক্ষা হয়নি");
+  const [appwriteLoading, setAppwriteLoading] = useState(false);
 
   const [query, setQuery] = useState("");
   const [newPlayerId, setNewPlayerId] = useState("");
@@ -155,6 +164,59 @@ function App() {
     await verifyAdmin(data.session);
   }
 
+  // Player App-এর Appwrite database থেকে live players আনে।
+  async function loadAppwritePlayers(currentSession = session) {
+    if (!currentSession?.access_token) {
+      setAppwriteStatus("Admin login পাওয়া যায়নি।");
+      return;
+    }
+
+    setAppwriteLoading(true);
+    setAppwriteStatus("Player App থেকে তথ্য আনা হচ্ছে...");
+
+    try {
+      const response = await fetch(PLAYER_API, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${currentSession.access_token}`,
+          Accept: "application/json"
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result.ok !== true) {
+        setAppwritePlayers([]);
+        setAppwriteTotal(0);
+        setAppwriteStatus(
+          result.error || `API Error: ${response.status}`
+        );
+        return;
+      }
+
+      const list = Array.isArray(result.players)
+        ? result.players
+        : [];
+
+      setAppwritePlayers(list);
+      setAppwriteTotal(
+        Number(result.total ?? list.length)
+      );
+
+      setAppwriteStatus(
+        `সংযুক্ত · ${Number(result.total ?? list.length)} জন Player পাওয়া গেছে`
+      );
+    } catch (err) {
+      setAppwritePlayers([]);
+      setAppwriteTotal(0);
+      setAppwriteStatus(
+        "সংযোগ ব্যর্থ: " + (err.message || "Network error")
+      );
+    } finally {
+      setAppwriteLoading(false);
+    }
+  }
+
   async function loadData() {
     if (!db || !session) return;
 
@@ -197,6 +259,9 @@ function App() {
 
     if (rh.error) notify(rh.error.message);
     else setRoleHistory(rh.data || []);
+
+    // Admin-এর Supabase session দিয়ে Player Worker-এ যাচাই।
+    await loadAppwritePlayers(session);
   }
 
   useEffect(() => {
@@ -343,6 +408,9 @@ function App() {
   async function logout() {
     await db.auth.signOut();
     setSession(null);
+    setAppwritePlayers([]);
+    setAppwriteTotal(0);
+    setAppwriteStatus("Admin logout হয়েছে।");
   }
 
   const filteredPlayers = useMemo(() => {
@@ -352,6 +420,14 @@ function App() {
         .includes(query.toLowerCase())
     );
   }, [players, query]);
+
+  const filteredAppwritePlayers = useMemo(() => {
+    return appwritePlayers.filter(p =>
+      `${p.display_name || ""} ${p.$id || ""} ${p.auth_user_id || ""}`
+        .toLowerCase()
+        .includes(query.toLowerCase())
+    );
+  }, [appwritePlayers, query]);
 
   function getPlayer(playerUuid) {
     return players.find(p => p.id === playerUuid);
@@ -453,8 +529,86 @@ function App() {
   function playerPage() {
     return (
       <>
+        {/* Live Player App data */}
         <div className="panel">
-          <h3>Player Management</h3>
+          <h3>BD GAME Player App · Live Players</h3>
+
+          <div className="stats">
+            <Stat
+              icon={<Users />}
+              label="Player App Total"
+              value={appwriteTotal}
+            />
+            <Stat
+              icon={<Activity />}
+              label="Loaded Players"
+              value={appwritePlayers.length}
+            />
+          </div>
+
+          <div className="order">
+            <div>
+              <b>Player App API Status</b>
+              <p className="muted">{appwriteStatus}</p>
+            </div>
+
+            <div className="actions">
+              <button
+                className="primary"
+                onClick={() => loadAppwritePlayers()}
+                disabled={appwriteLoading}
+              >
+                <RefreshCw />
+                {appwriteLoading ? "Loading..." : "Refresh Players"}
+              </button>
+            </div>
+          </div>
+
+          <div className="search">
+            <Search />
+            <input
+              placeholder="Player App-এর নাম বা ID খুঁজুন"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+          </div>
+
+          <DataTable
+            headers={[
+              "Player Name",
+              "Player ID",
+              "Level",
+              "XP",
+              "Coins",
+              "Diamonds",
+              "Status",
+              "Joined"
+            ]}
+            rows={filteredAppwritePlayers.map(p => [
+              p.display_name || "Player",
+              p.$id || p.auth_user_id || "—",
+              p.level ?? 1,
+              p.xp ?? 0,
+              p.coins ?? 0,
+              p.diamonds ?? 0,
+              p.status || "active",
+              p.created_at
+                ? new Date(p.created_at).toLocaleDateString()
+                : "—"
+            ])}
+          />
+
+          {!appwriteLoading && appwritePlayers.length === 0 && (
+            <p className="muted">
+              Player App থেকে কোনো Player পাওয়া যায়নি অথবা API সংযোগে সমস্যা হয়েছে।
+              উপরের API Status দেখুন।
+            </p>
+          )}
+        </div>
+
+        {/* Existing Admin database players */}
+        <div className="panel">
+          <h3>Admin Records · Player Management</h3>
 
           <div className="search">
             <Search />
