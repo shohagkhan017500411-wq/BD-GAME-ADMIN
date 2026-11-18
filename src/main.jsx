@@ -284,7 +284,7 @@ function App() {
     setNewPlayerName("");
     notify("Player যোগ হয়েছে।");
     loadData();
-  }
+  } 
 
   async function assignRole(e) {
     e.preventDefault();
