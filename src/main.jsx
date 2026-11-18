@@ -164,7 +164,7 @@ function App() {
     await verifyAdmin(data.session);
   }
 
-  // Player App-এর Appwrite database থেকে live players আনে।
+  // Player App থেকে তথ্য আনে; ১৫ সেকেন্ডে উত্তর না এলে থামে।
   async function loadAppwritePlayers(currentSession = session) {
     if (!currentSession?.access_token) {
       setAppwriteStatus("Admin login পাওয়া যায়নি।");
@@ -174,13 +174,20 @@ function App() {
     setAppwriteLoading(true);
     setAppwriteStatus("Player App থেকে তথ্য আনা হচ্ছে...");
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      15000
+    );
+
     try {
       const response = await fetch(PLAYER_API, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${currentSession.access_token}`,
           Accept: "application/json"
-        }
+        },
+        signal: controller.signal
       });
 
       const result = await response.json();
@@ -210,9 +217,12 @@ function App() {
       setAppwritePlayers([]);
       setAppwriteTotal(0);
       setAppwriteStatus(
-        "সংযোগ ব্যর্থ: " + (err.message || "Network error")
+        err?.name === "AbortError"
+          ? "সময় শেষ: Player App থেকে উত্তর পাওয়া যায়নি। আবার চেষ্টা করুন।"
+          : "সংযোগ ব্যর্থ: " + (err.message || "Network error")
       );
     } finally {
+      window.clearTimeout(timeoutId);
       setAppwriteLoading(false);
     }
   }
@@ -260,7 +270,6 @@ function App() {
     if (rh.error) notify(rh.error.message);
     else setRoleHistory(rh.data || []);
 
-    // Admin-এর Supabase session দিয়ে Player Worker-এ যাচাই।
     await loadAppwritePlayers(session);
   }
 
@@ -284,7 +293,7 @@ function App() {
     setNewPlayerName("");
     notify("Player যোগ হয়েছে।");
     loadData();
-  } 
+  }
 
   async function assignRole(e) {
     e.preventDefault();
@@ -529,7 +538,6 @@ function App() {
   function playerPage() {
     return (
       <>
-        {/* Live Player App data */}
         <div className="panel">
           <h3>BD GAME Player App · Live Players</h3>
 
@@ -606,7 +614,6 @@ function App() {
           )}
         </div>
 
-        {/* Existing Admin database players */}
         <div className="panel">
           <h3>Admin Records · Player Management</h3>
 
