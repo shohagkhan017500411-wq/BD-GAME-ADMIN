@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
@@ -67,7 +68,6 @@ function App() {
   const [history, setHistory] = useState([]);
   const [roleHistory, setRoleHistory] = useState([]);
 
-  // Live Player App data
   const [appwritePlayers, setAppwritePlayers] = useState([]);
   const [appwriteTotal, setAppwriteTotal] = useState(0);
   const [appwriteStatus, setAppwriteStatus] = useState("এখনো সংযোগ পরীক্ষা হয়নি");
@@ -163,15 +163,16 @@ function App() {
     await verifyAdmin(data.session);
   }
 
-  // Player App থেকে তথ্য আনে; ১৫ সেকেন্ডে উত্তর না এলে থামে।
+  // Player App API থেকে Player তথ্য আনে।
   async function loadAppwritePlayers(currentSession = session) {
     if (!currentSession?.access_token) {
+      setAppwriteLoading(false);
       setAppwriteStatus("Admin login পাওয়া যায়নি।");
       return;
     }
 
     setAppwriteLoading(true);
-    setAppwriteStatus("Player App থেকে তথ্য আনা হচ্ছে...");
+    setAppwriteStatus("Player App-এর সঙ্গে সংযোগ করা হচ্ছে...");
 
     const controller = new AbortController();
     const timeoutId = window.setTimeout(
@@ -186,7 +187,8 @@ function App() {
           Authorization: `Bearer ${currentSession.access_token}`,
           Accept: "application/json"
         },
-        signal: controller.signal
+        signal: controller.signal,
+        cache: "no-store"
       });
 
       const result = await response.json();
@@ -215,9 +217,10 @@ function App() {
     } catch (err) {
       setAppwritePlayers([]);
       setAppwriteTotal(0);
+
       setAppwriteStatus(
         err?.name === "AbortError"
-          ? "সময় শেষ: Player App থেকে উত্তর পাওয়া যায়নি। আবার চেষ্টা করুন।"
+          ? "সময় শেষ: Player App ১৫ সেকেন্ডেও উত্তর দেয়নি।"
           : "সংযোগ ব্যর্থ: " + (err.message || "Network error")
       );
     } finally {
@@ -226,11 +229,27 @@ function App() {
     }
   }
 
+  // বোতাম চাপলেই Loading দেখায়, তারপর API request শুরু করে।
+  function refreshPlayerApp() {
+    if (!session?.access_token) {
+      setAppwriteStatus("Admin login পাওয়া যায়নি। আবার Login করুন।");
+      return;
+    }
+
+    if (appwriteLoading) return;
+
+    setAppwriteLoading(true);
+    setAppwriteStatus("সংযোগ শুরু হচ্ছে...");
+
+    // UI-কে Loading দেখানোর সুযোগ দিয়ে API request শুরু।
+    window.setTimeout(() => {
+      void loadAppwritePlayers(session);
+    }, 0);
+  }
+
   async function loadData() {
     if (!db || !session) return;
 
-    // Player App-এর তথ্য স্বাধীনভাবে লোড হবে।
-    // Supabase-এর অন্য টেবিলের জন্য অপেক্ষা করবে না।
     void loadAppwritePlayers(session);
 
     const [p, r, o, h, rh] = await Promise.all([
@@ -348,7 +367,8 @@ function App() {
 
     if (deleteError) return notify(deleteError.message);
 
-    notify("Role সরানো হয়েছে।");loadData();
+    notify("Role সরানো হয়েছে।");
+    loadData();
   }
 
   async function createOrder(e) {
@@ -563,10 +583,12 @@ function App() {
             <div className="actions">
               <button
                 className="primary"
-                onClick={() => loadAppwritePlayers()}
+                onClick={refreshPlayerApp}
                 disabled={appwriteLoading}
               >
-                <RefreshCw />
+                {appwriteLoading
+                  ? <LoaderCircle className="spin" />
+                  : <RefreshCw />}
                 {appwriteLoading ? "Loading..." : "Refresh Players"}
               </button>
             </div>
@@ -697,7 +719,9 @@ function App() {
             <button className="primary">
               <Plus /> Assign Role
             </button>
-          </form><div className="order-list">
+          </form>
+
+          <div className="order-list">
             {roles.map(r => (
               <div className="order" key={r.id}>
                 <div>
