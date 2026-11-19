@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
@@ -17,7 +16,7 @@ const URL = import.meta.env.VITE_SUPABASE_URL;
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const db = URL && KEY ? createClient(URL, KEY) : null;
 
-const OWNER_ID = "3fcee17a-fd33-4d0e-97cf-7ae35c9eb820";
+const OWNER_ID = "abae9dc5-08d4-4f34-8cbb-c350f9e5736f";
 
 const PLAYER_API =
   "https://bd-game.shohagkhan017500411.workers.dev/api/admin/players";
@@ -241,7 +240,6 @@ function App() {
     setAppwriteLoading(true);
     setAppwriteStatus("সংযোগ শুরু হচ্ছে...");
 
-    // UI-কে Loading দেখানোর সুযোগ দিয়ে API request শুরু।
     window.setTimeout(() => {
       void loadAppwritePlayers(session);
     }, 0);
@@ -516,9 +514,7 @@ function App() {
         </form>
       </div>
     );
-  }
-
-  function dashboard() {
+    }function dashboard() {
     return (
       <>
         <div className="welcome">
@@ -562,16 +558,8 @@ function App() {
           <h3>BD GAME Player App · Live Players</h3>
 
           <div className="stats">
-            <Stat
-              icon={<Users />}
-              label="Player App Total"
-              value={appwriteTotal}
-            />
-            <Stat
-              icon={<Activity />}
-              label="Loaded Players"
-              value={appwritePlayers.length}
-            />
+            <Stat icon={<Users />} label="Player App Total" value={appwriteTotal} />
+            <Stat icon={<Activity />} label="Loaded Players" value={appwritePlayers.length} />
           </div>
 
           <div className="order">
@@ -874,9 +862,7 @@ function App() {
         </div>
       </>
     );
-  }
-
-  function otherPage() {
+  }function otherPage() {
     if (page === "Security & Reports Management") {
       return (
         <div className="panel">
