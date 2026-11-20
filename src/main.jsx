@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
@@ -47,17 +48,48 @@ const MODULES = [
 ];
 
 const PLANS = [
-  { id: "weekly", label: "Weekly", total: 500, instant: 250, deferred: 250, days: 7 },
-  { id: "weekly_lite", label: "Weekly Lite", total: 300, instant: 150, deferred: 150, days: 7 },
-  { id: "monthly", label: "Monthly", total: 3000, instant: 1500, deferred: 1500, days: 30, daily: 50 }
+  {
+    id: "weekly",
+    label: "Weekly",
+    total: 500,
+    instant: 250,
+    deferred: 250,
+    days: 7
+  },
+  {
+    id: "weekly_lite",
+    label: "Weekly Lite",
+    total: 300,
+    instant: 150,
+    deferred: 150,
+    days: 7
+  },
+  {
+    id: "monthly",
+    label: "Monthly",
+    total: 3000,
+    instant: 1500,
+    deferred: 1500,
+    days: 30,
+    daily: 50
+  }
 ];
 
 function App() {
   const [session, setSession] = useState(null);
   const [busy, setBusy] = useState(true);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  // Password recovery states
+  const [forgotMode, setForgotMode] = useState(false);
+  const [resetMode, setResetMode] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
   const [page, setPage] = useState("Game Dashboard");
   const [mobile, setMobile] = useState(false);
 
@@ -69,7 +101,9 @@ function App() {
 
   const [appwritePlayers, setAppwritePlayers] = useState([]);
   const [appwriteTotal, setAppwriteTotal] = useState(0);
-  const [appwriteStatus, setAppwriteStatus] = useState("এখনো সংযোগ পরীক্ষা হয়নি");
+  const [appwriteStatus, setAppwriteStatus] = useState(
+    "এখনো সংযোগ পরীক্ষা হয়নি"
+  );
   const [appwriteLoading, setAppwriteLoading] = useState(false);
 
   const [query, setQuery] = useState("");
@@ -119,16 +153,30 @@ function App() {
 
     db.auth.getSession().then(({ data }) => {
       if (!mounted) return;
-      if (data.session) verifyAdmin(data.session);
-      else setBusy(false);
-    });
 
-    const { data: listener } = db.auth.onAuthStateChange(event => {
-      if (event === "SIGNED_OUT") {
-        setSession(null);
+      if (data.session) {
+        verifyAdmin(data.session);
+      } else {
         setBusy(false);
       }
     });
+
+    const { data: listener } = db.auth.onAuthStateChange(
+      (event) => {
+        if (event === "SIGNED_OUT") {
+          setSession(null);
+          setBusy(false);
+        }
+
+        if (event === "PASSWORD_RECOVERY") {
+          setResetMode(true);
+          setForgotMode(false);
+          setError("");
+          setMessage("নতুন পাসওয়ার্ড সেট করুন।");
+          setBusy(false);
+        }
+      }
+    );
 
     return () => {
       mounted = false;
@@ -138,8 +186,10 @@ function App() {
 
   async function login(e) {
     e.preventDefault();
+
     setBusy(true);
     setError("");
+    setMessage("");
 
     if (!db) {
       setError("Supabase configuration পাওয়া যায়নি।");
@@ -162,6 +212,86 @@ function App() {
     await verifyAdmin(data.session);
   }
 
+  // Forgot Password: Reset email পাঠানো
+  async function sendRecovery(e) {
+    e.preventDefault();
+
+    setBusy(true);
+    setError("");
+    setMessage("");
+
+    if (!db) {
+      setError("Supabase configuration পাওয়া যায়নি।");
+      setBusy(false);
+      return;
+    }
+
+    const { error: recoveryError } =
+      await db.auth.resetPasswordForEmail(
+        email.trim(),
+        {
+          redirectTo: window.location.origin
+        }
+      );
+
+    if (recoveryError) {
+      setError(recoveryError.message);
+    } else {
+      setMessage(
+        "পাসওয়ার্ড পরিবর্তনের লিংক পাঠানো হয়েছে। ইমেইল চেক করুন।"
+      );
+    }
+
+    setBusy(false);
+  }
+
+  // Reset link দিয়ে নতুন Password সেট করা
+  async function updatePassword(e) {
+    e.preventDefault();
+
+    setError("");
+    setMessage("");
+
+    if (!db) {
+      setError("Supabase configuration পাওয়া যায়নি।");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setError("পাসওয়ার্ড কমপক্ষে ৮ অক্ষরের হতে হবে।");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("দুটি পাসওয়ার্ড মিলছে না।");
+      return;
+    }
+
+    setBusy(true);
+
+    const { error: updateError } =
+      await db.auth.updateUser({
+        password: newPassword
+      });
+
+    if (updateError) {
+      setError(updateError.message);
+      setBusy(false);
+      return;
+    }
+
+    await db.auth.signOut();
+
+    setSession(null);
+    setPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setResetMode(false);
+    setForgotMode(false);
+    setMessage("নতুন পাসওয়ার্ড সেট হয়েছে। এখন Login করুন।");
+    setBusy(false);
+  }
+
   // Player App API থেকে Player তথ্য আনে।
   async function loadAppwritePlayers(currentSession = session) {
     if (!currentSession?.access_token) {
@@ -174,6 +304,7 @@ function App() {
     setAppwriteStatus("Player App-এর সঙ্গে সংযোগ করা হচ্ছে...");
 
     const controller = new AbortController();
+
     const timeoutId = window.setTimeout(
       () => controller.abort(),
       15000
@@ -206,6 +337,7 @@ function App() {
         : [];
 
       setAppwritePlayers(list);
+
       setAppwriteTotal(
         Number(result.total ?? list.length)
       );
@@ -228,10 +360,12 @@ function App() {
     }
   }
 
-  // বোতাম চাপলেই Loading দেখায়, তারপর API request শুরু করে।
+  // বোতাম চাপলেই Loading দেখায়।
   function refreshPlayerApp() {
     if (!session?.access_token) {
-      setAppwriteStatus("Admin login পাওয়া যায়নি। আবার Login করুন।");
+      setAppwriteStatus(
+        "Admin login পাওয়া যায়নি। আবার Login করুন।"
+      );
       return;
     }
 
@@ -403,7 +537,8 @@ function App() {
     if (updateError) return notify(updateError.message);
 
     if (status === "approved") {
-      const amount = order.reward_plans?.instant_diamonds || 0;
+      const amount =
+        order.reward_plans?.instant_diamonds || 0;
 
       if (amount > 0) {
         const { error: distributionError } = await db
@@ -416,7 +551,10 @@ function App() {
           });
 
         if (distributionError) {
-          notify("Distribution record হয়নি: " + distributionError.message);
+          notify(
+            "Distribution record হয়নি: " +
+            distributionError.message
+          );
           loadData();
           return;
         }
@@ -434,6 +572,7 @@ function App() {
 
   async function logout() {
     await db.auth.signOut();
+
     setSession(null);
     setAppwritePlayers([]);
     setAppwriteTotal(0);
@@ -460,6 +599,51 @@ function App() {
     return players.find(p => p.id === playerUuid);
   }
 
+  // নতুন Password সেট করার পেজ
+  if (resetMode) {
+    return (
+      <div className="login-wrap">
+        <form className="login-card" onSubmit={updatePassword}>
+          <div className="logo">
+            <ShieldCheck size={42} />
+          </div>
+
+          <h1>NEW PASSWORD</h1>
+          <p>নতুন পাসওয়ার্ড সেট করুন</p>
+
+          <label>New Password</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={e => setNewPassword(e.target.value)}
+            placeholder="নতুন পাসওয়ার্ড"
+            minLength={8}
+            autoComplete="new-password"
+            required
+          />
+
+          <label>Confirm Password</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={e => setConfirmPassword(e.target.value)}
+            placeholder="আবার নতুন পাসওয়ার্ড লিখুন"
+            minLength={8}
+            autoComplete="new-password"
+            required
+          />
+
+          {error && <div className="alert">{error}</div>}
+          {message && <div className="alert">{message}</div>}
+
+          <button className="primary" disabled={busy}>
+            {busy ? "Updating..." : "Update Password"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
   if (busy) {
     return (
       <div className="center">
@@ -469,16 +653,24 @@ function App() {
     );
   }
 
+  // Login এবং Forgot Password পেজ
   if (!session) {
     return (
       <div className="login-wrap">
-        <form className="login-card" onSubmit={login}>
+        <form
+          className="login-card"
+          onSubmit={forgotMode ? sendRecovery : login}
+        >
           <div className="logo">
             <Gamepad2 size={42} />
           </div>
 
           <h1>BD GAME ADMIN</h1>
-          <p>Secure Owner Login</p>
+          <p>
+            {forgotMode
+              ? "Reset Admin Password"
+              : "Secure Owner Login"}
+          </p>
 
           {!db && (
             <div className="alert">
@@ -491,22 +683,59 @@ function App() {
             type="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
+            placeholder="Admin Email"
+            autoComplete="email"
             required
           />
 
-          <label>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-          />
+          {!forgotMode && (
+            <>
+              <label>Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Admin Password"
+                autoComplete="current-password"
+                required
+              />
+            </>
+          )}
 
           {error && <div className="alert">{error}</div>}
+          {message && <div className="alert">{message}</div>}
 
-          <button className="primary" disabled={!db}>
-            Login
+          <button className="primary" disabled={!db || busy}>
+            {busy
+              ? "Please wait..."
+              : forgotMode
+                ? "Send Reset Link"
+                : "Login"}
           </button>
+
+          {forgotMode ? (
+            <button
+              type="button"
+              onClick={() => {
+                setForgotMode(false);
+                setError("");
+                setMessage("");
+              }}
+            >
+              Back to Login
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setForgotMode(true);
+                setError("");
+                setMessage("");
+              }}
+            >
+              Forgot Password?
+            </button>
+          )}
 
           <small>
             শুধু নির্ধারিত Admin প্রবেশ করতে পারবে।
@@ -514,7 +743,9 @@ function App() {
         </form>
       </div>
     );
-    }function dashboard() {
+  }
+
+  function dashboard() {
     return (
       <>
         <div className="welcome">
@@ -526,14 +757,31 @@ function App() {
         </div>
 
         <div className="stats">
-          <Stat icon={<Users />} label="Total Players" value={players.length} />
-          <Stat icon={<Shield />} label="Assigned Roles" value={roles.length} />
-          <Stat icon={<Gem />} label="Pending Orders" value={orders.filter(o => o.status === "pending").length} />
-          <Stat icon={<History />} label="Diamond Records" value={history.length} />
+          <Stat
+            icon={<Users />}
+            label="Total Players"
+            value={players.length}
+          />
+          <Stat
+            icon={<Shield />}
+            label="Assigned Roles"
+            value={roles.length}
+          />
+          <Stat
+            icon={<Gem />}
+            label="Pending Orders"
+            value={orders.filter(o => o.status === "pending").length}
+          />
+          <Stat
+            icon={<History />}
+            label="Diamond Records"
+            value={history.length}
+          />
         </div>
 
         <div className="panel">
           <h3>২২টি Management Section</h3>
+
           <div className="tiles">
             {MODULES.map(([name, Icon]) => (
               <button
@@ -558,8 +806,16 @@ function App() {
           <h3>BD GAME Player App · Live Players</h3>
 
           <div className="stats">
-            <Stat icon={<Users />} label="Player App Total" value={appwriteTotal} />
-            <Stat icon={<Activity />} label="Loaded Players" value={appwritePlayers.length} />
+            <Stat
+              icon={<Users />}
+              label="Player App Total"
+              value={appwriteTotal}
+            />
+            <Stat
+              icon={<Activity />}
+              label="Loaded Players"
+              value={appwritePlayers.length}
+            />
           </div>
 
           <div className="order">
@@ -577,7 +833,9 @@ function App() {
                 {appwriteLoading
                   ? <LoaderCircle className="spin" />
                   : <RefreshCw />}
-                {appwriteLoading ? "Loading..." : "Refresh Players"}
+                {appwriteLoading
+                  ? "Loading..."
+                  : "Refresh Players"}
               </button>
             </div>
           </div>
@@ -643,27 +901,44 @@ function App() {
               onChange={e => setNewPlayerId(e.target.value)}
               required
             />
+
             <input
               placeholder="Player Name"
               value={newPlayerName}
               onChange={e => setNewPlayerName(e.target.value)}
               required
             />
+
             <button className="primary">
               <Plus /> Add Player
             </button>
           </form>
 
           <DataTable
-            headers={["Avatar", "Player ID", "Name", "V Badge", "Status", "Created"]}
+            headers={[
+              "Avatar",
+              "Player ID",
+              "Name",
+              "V Badge",
+              "Status",
+              "Created"
+            ]}
             rows={filteredPlayers.map(p => [
               p.avatar_url
-                ? <img className="player-avatar" src={p.avatar_url} alt="Player" />
+                ? (
+                  <img
+                    className="player-avatar"
+                    src={p.avatar_url}
+                    alt="Player"
+                  />
+                )
                 : "—",
               p.player_id,
               <>
                 {p.player_name}
-                {p.v_badge && <span className="v-badge">V</span>}
+                {p.v_badge && (
+                  <span className="v-badge">V</span>
+                )}
               </>,
               <button
                 className={p.v_badge ? "approve" : "reject"}
@@ -717,15 +992,21 @@ function App() {
                     {r.game_players?.player_name || "Player"} ·
                     {" "}{r.game_players?.player_id || ""}
                   </b>
+
                   <p>
                     <span className={`role ${r.role_name}`}>
-                      {r.role_name === "vice" ? "VICE" : "MODERATOR"}
+                      {r.role_name === "vice"
+                        ? "VICE"
+                        : "MODERATOR"}
                     </span>
                   </p>
                 </div>
 
                 <div className="actions">
-                  <button className="reject" onClick={() => removeRole(r)}>
+                  <button
+                    className="reject"
+                    onClick={() => removeRole(r)}
+                  >
                     <Ban /> Remove Role
                   </button>
                 </div>
@@ -733,17 +1014,27 @@ function App() {
             ))}
 
             {!roles.length && (
-              <p className="muted">কোনো Role দেওয়া হয়নি।</p>
+              <p className="muted">
+                কোনো Role দেওয়া হয়নি।
+              </p>
             )}
           </div>
         </div>
 
         <div className="panel">
           <h3>Player Role History</h3>
+
           <DataTable
-            headers={["Player", "Player ID", "Action", "Role", "Date"]}
+            headers={[
+              "Player",
+              "Player ID",
+              "Action",
+              "Role",
+              "Date"
+            ]}
             rows={roleHistory.map(h => {
               const player = getPlayer(h.player_id);
+
               return [
                 player?.player_name || "Player",
                 player?.player_id || h.player_id,
@@ -765,6 +1056,7 @@ function App() {
       <>
         <div className="panel">
           <h3>Diamond Reward Management</h3>
+
           <p className="muted">
             Reward order তৈরি ও পর্যালোচনা করুন।
             বাস্তব গেমে Diamond পাঠাতে অনুমোদিত server API সংযোগ লাগবে।
@@ -816,6 +1108,7 @@ function App() {
           </div>
 
           <h3>Reward Orders</h3>
+
           <div className="order-list">
             {orders.map(o => (
               <div className="order" key={o.id}>
@@ -824,19 +1117,30 @@ function App() {
                     {o.game_players?.player_name} ·
                     {" "}{o.game_players?.player_id}
                   </b>
+
                   <p>
                     {o.reward_plans?.reward_name} ·
                     {" "}{o.reward_plans?.total_diamonds} Diamond
                   </p>
-                  <span className={`status ${o.status}`}>{o.status}</span>
+
+                  <span className={`status ${o.status}`}>
+                    {o.status}
+                  </span>
                 </div>
 
                 {o.status === "pending" && (
                   <div className="actions">
-                    <button className="approve" onClick={() => reviewOrder(o, "approved")}>
+                    <button
+                      className="approve"
+                      onClick={() => reviewOrder(o, "approved")}
+                    >
                       <Check /> Approve
                     </button>
-                    <button className="reject" onClick={() => reviewOrder(o, "rejected")}>
+
+                    <button
+                      className="reject"
+                      onClick={() => reviewOrder(o, "rejected")}
+                    >
                       <X /> Reject
                     </button>
                   </div>
@@ -848,8 +1152,14 @@ function App() {
 
         <div className="panel">
           <h3>Diamond Distribution History</h3>
+
           <DataTable
-            headers={["Player ID", "Diamonds", "Type", "Date"]}
+            headers={[
+              "Player ID",
+              "Diamonds",
+              "Type",
+              "Date"
+            ]}
             rows={history.map(h => [
               h.player_id,
               h.diamonds,
@@ -862,14 +1172,20 @@ function App() {
         </div>
       </>
     );
-  }function otherPage() {
+  }
+
+  function otherPage() {
     if (page === "Security & Reports Management") {
       return (
         <div className="panel">
           <h3>Security & Reports Management</h3>
           <p>Owner ID: <code>{OWNER_ID}</code></p>
-          <p>Admin verification: Supabase Auth + is_admin() + RLS</p>
-          <p>Moderator ও Vice-কে Admin access দেওয়া হয়নি।</p>
+          <p>
+            Admin verification: Supabase Auth + is_admin() + RLS
+          </p>
+          <p>
+            Moderator ও Vice-কে Admin access দেওয়া হয়নি।
+          </p>
         </div>
       );
     }
@@ -881,7 +1197,9 @@ function App() {
       return (
         <div className="panel">
           <h3>{page}</h3>
-          <p>এখানে Chat ও Notification-এর প্রাথমিক পেজ রাখা হয়েছে।</p>
+          <p>
+            এখানে Chat ও Notification-এর প্রাথমিক পেজ রাখা হয়েছে।
+          </p>
           <p className="muted">
             Player App এবং message delivery backend সংযোগ না হওয়া পর্যন্ত
             মেসেজ পাঠানো বা Notification পৌঁছানো চালু হবে না।
@@ -923,10 +1241,12 @@ function App() {
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
         <div className="brand">
           <Gamepad2 />
+
           <div>
             <b>BD GAME</b>
             <small>ADMIN PANEL</small>
           </div>
+
           <button
             className="icon-btn mobile-close"
             onClick={() => setMobile(false)}
@@ -977,7 +1297,11 @@ function App() {
             <Crown size={17} /> OWNER ADMIN
           </div>
 
-          <button className="icon-btn" onClick={loadData} title="Refresh">
+          <button
+            className="icon-btn"
+            onClick={loadData}
+            title="Refresh"
+          >
             <RefreshCw size={17} />
           </button>
         </header>
@@ -1009,16 +1333,27 @@ function DataTable({ headers, rows }) {
     <div className="table-wrap">
       <table>
         <thead>
-          <tr>{headers.map(h => <th key={h}>{h}</th>)}</tr>
+          <tr>
+            {headers.map(h => (
+              <th key={h}>{h}</th>
+            ))}
+          </tr>
         </thead>
+
         <tbody>
-          {rows.length ? rows.map((r, i) => (
-            <tr key={i}>
-              {r.map((c, j) => <td key={j}>{c}</td>)}
-            </tr>
-          )) : (
+          {rows.length ? (
+            rows.map((r, i) => (
+              <tr key={i}>
+                {r.map((c, j) => (
+                  <td key={j}>{c}</td>
+                ))}
+              </tr>
+            ))
+          ) : (
             <tr>
-              <td colSpan={headers.length}>কোনো তথ্য পাওয়া যায়নি</td>
+              <td colSpan={headers.length}>
+                কোনো তথ্য পাওয়া যায়নি
+              </td>
             </tr>
           )}
         </tbody>
