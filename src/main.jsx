@@ -121,6 +121,13 @@ function App() {
       return "";
     }
   });
+  const [dashboardImagePath, setDashboardImagePath] = useState(() => {
+    try {
+      return localStorage.getItem("bd_game_dashboard_image_path") || "";
+    } catch {
+      return "";
+    }
+  });
 
   const [players, setPlayers] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -152,37 +159,72 @@ function App() {
     setTimeout(() => setNotice(""), 3500);
   };
 
-  function handleDashboardImage(event) {
+  async function handleDashboardImage(event) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      notify("Please select an image.");
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      notify("Please select a JPG, PNG, or WebP image.");
+      event.target.value = "";
       return;
     }
 
-    }if (file.size > 50 * 1024 * 1024) {
-  notify("Image must be under 50 MB.");
-  return;
-}
+    if (file.size > 50 * 1024 * 1024) {
+      notify("Image must be 50 MB or smaller.");
+      event.target.value = "";
+      return;
+    }
 
-    const reader = new FileReader();
+    try {
+      if (!db) throw new Error("Supabase is not configured.");
+      const { data: userData, error: userError } = await db.auth.getUser();
+      if (userError) throw userError;
+      const user = userData?.user;
+      if (!user) throw new Error("Please sign in as admin first.");
 
-    reader.onload = () => {
-      const imageData = String(reader.result || "");
+      const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+      const path = `${user.id}/dashboard-${Date.now()}.${extension}`;
+      const { error: uploadError } = await db.storage.from("admin-dashboard").upload(path, file, {
+        upsert: true,
+        contentType: file.type
+      });
+      if (uploadError) throw uploadError;
 
-      try {
-        localStorage.setItem("bd_game_dashboard_image", imageData);
-        setDashboardImage(imageData);
-        notify("Dashboard photo saved on this device.");
-      } catch {
-        notify("Could not save image. Try a smaller photo.");
-      }
-    };
+      const { data: signedData, error: signedError } = await db.storage
+        .from("admin-dashboard").createSignedUrl(path, 604800);
+      if (signedError) throw signedError;
 
-    reader.readAsDataURL(file);
-    event.target.value = "";
+      localStorage.setItem("bd_game_dashboard_image_path", path);
+      localStorage.removeItem("bd_game_dashboard_image");
+      setDashboardImagePath(path);
+      setDashboardImage(signedData.signedUrl);
+      notify("Dashboard photo uploaded successfully.");
+    } catch (error) {
+      console.error("Dashboard image upload failed:", error);
+      notify(error?.message || "Could not upload dashboard photo.");
+    } finally {
+      event.target.value = "";
+    }
   }
+
+
+  useEffect(() => {
+    if (!db || !session || !dashboardImagePath) return;
+    let cancelled = false;
+    async function restoreDashboardImage() {
+      const { data, error } = await db.storage.from("admin-dashboard")
+        .createSignedUrl(dashboardImagePath, 604800);
+      if (cancelled) return;
+      if (error) {
+        console.error("Could not restore dashboard photo:", error);
+        return;
+      }
+      setDashboardImage(data.signedUrl);
+    }
+    restoreDashboardImage();
+    return () => { cancelled = true; };
+  }, [session, dashboardImagePath]);
 
   useEffect(() => {
     if (!db) {
@@ -567,13 +609,11 @@ function App() {
       if (distributionError) {
         notify("Order approved, but distribution failed: " + distributionError.message);
         await loadData();
-        return;
-      }
-    }
-
-    notify(approved ? "Order approved." : "Order rejected.");
+        return;notify(approved ? "Order approved." : "Order rejected.");
     await loadData();
-}function dashboard() {
+  }
+
+  function dashboard() {
     return (
       <div
         className="page-content dashboard-photo-page"
@@ -984,7 +1024,9 @@ function App() {
         </div>
       </div>
     );
-  }function content() {
+  }
+
+  function content() {
     if (page === "Game Dashboard") return dashboard();
 
     if (page === "Player Management") return playerPage();
