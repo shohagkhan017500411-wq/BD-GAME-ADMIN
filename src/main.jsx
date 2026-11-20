@@ -102,7 +102,9 @@ const PLANS = [
     days: 30,
     daily: 50
   }
-];function App() {
+];
+
+function App() {
   const [session, setSession] = useState(null);
   const [busy, setBusy] = useState(true);
   const [loginEmail, setLoginEmail] = useState("");
@@ -111,6 +113,14 @@ const PLANS = [
   const [mobile, setMobile] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
+
+  const [dashboardImage, setDashboardImage] = useState(() => {
+    try {
+      return localStorage.getItem("bd_game_dashboard_image") || "";
+    } catch {
+      return "";
+    }
+  });
 
   const [players, setPlayers] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -142,6 +152,38 @@ const PLANS = [
     setTimeout(() => setNotice(""), 3500);
   };
 
+  function handleDashboardImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      notify("Please select an image.");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      notify("Image must be under 2 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const imageData = String(reader.result || "");
+
+      try {
+        localStorage.setItem("bd_game_dashboard_image", imageData);
+        setDashboardImage(imageData);
+        notify("Dashboard photo saved on this device.");
+      } catch {
+        notify("Could not save image. Try a smaller photo.");
+      }
+    };
+
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  }
+
   useEffect(() => {
     if (!db) {
       setBusy(false);
@@ -150,8 +192,10 @@ const PLANS = [
 
     const checkSession = async () => {
       const { data } = await db.auth.getSession();
+
       if (data?.session) {
         const allowed = await verifyAdmin(data.session);
+
         if (allowed) {
           setSession(data.session);
           await loadData();
@@ -159,6 +203,7 @@ const PLANS = [
           await db.auth.signOut();
         }
       }
+
       setBusy(false);
     };
 
@@ -340,7 +385,6 @@ const PLANS = [
     event.preventDefault();
 
     const table = MODULE_TABLES[page];
-
     if (!table) return;
 
     setModuleLoading(true);
@@ -401,16 +445,16 @@ const PLANS = [
 
   function editModuleItem(item) {
     setModuleEditingId(item.id);
-    setModuleDraft({
-      ...item
-    });
+    setModuleDraft({ ...item });
   }
 
   useEffect(() => {
     if (session && MODULE_TABLES[page]) {
       loadModuleRows(page);
     }
-  }, [page, session]);async function addPlayer(event) {
+  }, [page, session]);
+
+  async function addPlayer(event) {
     event.preventDefault();
 
     if (!playerName.trim() || !playerUid.trim()) {
@@ -529,26 +573,58 @@ const PLANS = [
 
     notify(approved ? "Order approved." : "Order rejected.");
     await loadData();
-  }
-
-  function dashboard() {
+}function dashboard() {
     return (
-      <div className="page-content">
-        <h1>Game Dashboard</h1>
-        <p>BD GAME Admin Control Center</p>
+      <div
+        className="page-content dashboard-photo-page"
+        style={dashboardImage ? {
+          backgroundImage:
+            `linear-gradient(#06132699, #061326d9), url("${dashboardImage}")`
+        } : undefined}
+      >
+        <section className="dashboard-partner-hero">
+          <label className="dashboard-photo-upload">
+            <Plus size={16} />
+            {dashboardImage ? "Change Photo" : "Add Photo"}
 
-        <div className="stats-grid">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleDashboardImage}
+            />
+          </label>
+
+          {!dashboardImage && (
+            <div className="dashboard-photo-placeholder">
+              <Users size={42} />
+              <strong>Your Photo Will Appear Here</strong>
+              <small>Choose a photo from your device</small>
+            </div>
+          )}
+
+          <h1>My Life Partner</h1>
+        </section>
+
+        <div className="welcome">
+          <div>
+            <h1>Game Dashboard</h1>
+            <p>BD GAME Admin Control Center</p>
+          </div>
+          <Gamepad2 size={38} />
+        </div>
+
+        <div className="stats">
           <Stat title="Players" value={players.length} icon={Users} />
           <Stat title="Roles" value={roles.length} icon={Crown} />
           <Stat title="Reward Orders" value={orders.length} icon={Gem} />
           <Stat title="Distributions" value={history.length} icon={Send} />
         </div>
 
-        <div className="module-grid">
+        <div className="tiles">
           {MODULES.map(([name, Icon]) => (
             <button
               key={name}
-              className="module-card"
+              className="tile"
               onClick={() => setPage(name)}
             >
               <Icon size={25} />
@@ -754,7 +830,9 @@ const PLANS = [
         </div>
       </div>
     );
-    }function moduleManagerPage() {
+  }
+
+  function moduleManagerPage() {
     const table = MODULE_TABLES[page];
 
     if (!table) {
@@ -906,9 +984,7 @@ const PLANS = [
         </div>
       </div>
     );
-  }
-
-  function content() {
+  }function content() {
     if (page === "Game Dashboard") return dashboard();
 
     if (page === "Player Management") return playerPage();
