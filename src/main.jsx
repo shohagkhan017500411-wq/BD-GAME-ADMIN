@@ -21,7 +21,7 @@ const db = URL && KEY
       auth: {
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: false,
         flowType: "pkce"
       }
     })
@@ -165,8 +165,7 @@ function App() {
       (event, currentSession) => {
         if (!mounted) return;
 
-        if (event === "PASSWORD_RECOVERY") {
-          setSession(null);
+        if (event === "PASSWORD_RECOVERY" && currentSession) {
           setResetMode(true);
           setForgotMode(false);
           setError("");
@@ -182,34 +181,108 @@ function App() {
     );
 
     async function checkSession() {
-      const { data, error } = await db.auth.getSession();
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code");
 
-      if (!mounted) return;
+        // PKCE recovery code exchange
+        if (code) {
+          const { data, error } =
+            await db.auth.exchangeCodeForSession(code);
 
-      if (error) {
-        setError(error.message);
-        setBusy(false);
-        return;
-      }
+          if (error) throw error;
 
-      const urlText =
-        window.location.search + window.location.hash;
+          if (data.session) {
+            if (!mounted) return;
 
-      const recoveryLink =
-        /type=recovery/i.test(urlText) ||
-        new URLSearchParams(window.location.search).has("code");
+            setResetMode(true);
+            setForgotMode(false);
+            setError("");
+            setMessage("নতুন পাসওয়ার্ড সেট করুন।");
 
-      if (recoveryLink && data.session) {
-        setResetMode(true);
-        setForgotMode(false);
-        setMessage("নতুন পাসওয়ার্ড সেট করুন।");
-        setBusy(false);
-        return;
-      }
+            window.history.replaceState(
+              {},
+              document.title,
+              window.location.pathname
+            );
 
-      if (data.session) {
-        await verifyAdmin(data.session);
-      } else {
+            setBusy(false);
+            return;
+          }
+        }
+
+        // Hash token recovery support
+        const hashParams = new URLSearchParams(
+          window.location.hash.replace(/^#/, "")
+        );
+
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        const isRecovery = hashParams.get("type") === "recovery";
+
+        if (accessToken && refreshToken && isRecovery) {
+          const { data, error } = await db.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+
+          if (error) throw error;
+
+          if (data.session) {
+            if (!mounted) return;
+
+            setResetMode(true);
+            setForgotMode(false);
+            setError("");
+            setMessage("নতুন পাসওয়ার্ড সেট করুন।");
+
+            window.history.replaceState(
+              {},
+              document.title,
+              window.location.pathname
+            );
+
+            setBusy(false);
+            return;
+          }
+        }
+
+        // Existing session check
+        const { data, error } = await db.auth.getSession();
+
+        if (!mounted) return;
+        if (error) throw error;
+
+        if (data.session) {
+          const recoveryUrl =
+            /type=recovery/i.test(
+              window.location.search + window.location.hash
+            );
+
+          if (recoveryUrl) {
+            setResetMode(true);
+            setForgotMode(false);
+            setMessage("নতুন পাসওয়ার্ড সেট করুন।");
+            setBusy(false);
+            return;
+          }
+
+          await verifyAdmin(data.session);
+        } else {
+          setBusy(false);
+
+          if (params.has("code") || isRecovery) {
+            setError(
+              "রিসেট লিংকের সেশন তৈরি হয়নি। নতুন Reset Link নিতে হবে।"
+            );
+          }
+        }
+      } catch (err) {
+        if (!mounted) return;
+
+        setError(
+          err?.message || "Recovery session তৈরি করা যায়নি।"
+        );
         setBusy(false);
       }
     }
@@ -309,26 +382,40 @@ function App() {
 
     setBusy(true);
 
-    const { error: updateError } =
-      await db.auth.updateUser({
-        password: newPassword
-      });
+    try {
+      const { data: sessionData, error: sessionError } =
+        await db.auth.getSession();
 
-    if (updateError) {
-      setError(updateError.message);
-      setBusy(false);
-      return;
+      if (sessionError) throw sessionError;
+
+      if (!sessionData.session) {
+        setError(
+          "Recovery session পাওয়া যায়নি। Gmail-এর নতুন Reset Link ব্যবহার করুন।"
+        );
+        setBusy(false);
+        return;
+      }
+
+      const { error: updateError } =
+        await db.auth.updateUser({
+          password: newPassword
+        });
+
+      if (updateError) throw updateError;
+
+      await db.auth.signOut();
+
+      setSession(null);
+      setPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setResetMode(false);
+      setForgotMode(false);
+      setMessage("নতুন পাসওয়ার্ড সেট হয়েছে। এখন Login করুন।");
+    } catch (err) {
+      setError(err?.message || "পাসওয়ার্ড আপডেট করা যায়নি।");
     }
 
-    await db.auth.signOut();
-
-    setSession(null);
-    setPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-    setResetMode(false);
-    setForgotMode(false);
-    setMessage("নতুন পাসওয়ার্ড সেট হয়েছে। এখন Login করুন।");
     setBusy(false);
   }
 
