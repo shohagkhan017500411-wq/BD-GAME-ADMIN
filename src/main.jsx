@@ -161,10 +161,10 @@ function App() {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      notify("Image must be under 50 MB.");
-      return;
-    }
+    }if (file.size > 50 * 1024 * 1024) {
+  notify("Image must be under 50 MB.");
+  return;
+}
 
     const reader = new FileReader();
 
