@@ -1,12 +1,29 @@
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   LayoutDashboard, Route, MousePointer2, Palette,
   Gamepad2, Sparkles, Save, Eye, Plus, Trash2,
   ShieldCheck, Bot, Bell, History, Users,
   MessageCircle, Shield, WandSparkles, Settings,
-  ChevronRight
+  ChevronRight, Cloud, LoaderCircle
 } from "lucide-react";
+
+const URL = import.meta.env.VITE_SUPABASE_URL;
+const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const db = URL && KEY
+  ? createClient(URL, KEY, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false,
+        flowType: "pkce"
+      }
+    })
+  : null;
+
+const OWNER_ID = "abae9dc5-08d4-4f34-8cbb-c350f9e5736f";
 
 const tools = [
   { name: "Entry Control", icon: LayoutDashboard },
@@ -52,33 +69,191 @@ const defaultDraft = {
   }))
 };
 
+function getLocalDraft() {
+  try {
+    const saved = localStorage.getItem("bd_game_master_draft");
+    return saved
+      ? { ...defaultDraft, ...JSON.parse(saved) }
+      : defaultDraft;
+  } catch {
+    return defaultDraft;
+  }
+}
+
 export default function MasterControl() {
   const [active, setActive] = useState("Entry Control");
-  const [draft, setDraft] = useState(() => {
-    try {
-      const saved = localStorage.getItem("bd_game_master_draft");
-      return saved ? { ...defaultDraft, ...JSON.parse(saved) } : defaultDraft;
-    } catch {
-      return defaultDraft;
-    }
-  });
+  const [draft, setDraft] = useState(getLocalDraft);
   const [saved, setSaved] = useState(false);
   const [preview, setPreview] = useState(false);
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState(
+    "Supabase সংযোগ পরীক্ষা হচ্ছে..."
+  );
+
+  const [ownerSession, setOwnerSession] = useState(null);
+
+  // Admin যাচাই এবং Cloud Settings লোড
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadCloudSettings() {
+      if (!db) {
+        if (mounted) {
+          setCloudStatus("Supabase configuration পাওয়া যায়নি।");
+          setLoading(false);
+        }
+        return;
+      }
+
+      try {
+        const { data: sessionData, error: sessionError } =
+          await db.auth.getSession();
+
+        if (sessionError) throw sessionError;
+
+        const currentSession = sessionData.session;
+
+        if (!currentSession) {
+          throw new Error("Admin login session পাওয়া যায়নি।");
+        }
+
+        if (currentSession.user.id !== OWNER_ID) {
+          throw new Error("এই অ্যাকাউন্টটি Owner Admin নয়।");
+        }
+
+        const { data: isAdmin, error: adminError } =
+          await db.rpc("is_admin");
+
+        if (adminError || isAdmin !== true) {
+          throw new Error("Admin অনুমতি যাচাই করা যায়নি।");
+        }
+
+        if (!mounted) return;
+
+        setOwnerSession(currentSession);
+
+        const { data, error } = await db
+          .from("game_admin_settings")
+          .select("settings, updated_at")
+          .eq("id", "global")
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data?.settings) {
+          const cloudDraft = {
+            ...defaultDraft,
+            ...data.settings
+          };
+
+          setDraft(cloudDraft);
+
+          try {
+            localStorage.setItem(
+              "bd_game_master_draft",
+              JSON.stringify(cloudDraft)
+            );
+          } catch {}
+        }
+
+        setCloudStatus(
+          data
+            ? "Cloud Connected · Settings লোড হয়েছে"
+            : "Cloud Connected · নতুন Settings তৈরি করা যাবে"
+        );
+      } catch (err) {
+        if (mounted) {
+          setCloudStatus(
+            "Cloud Error: " + (err.message || "সংযোগ ব্যর্থ")
+          );
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    loadCloudSettings();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   function update(key, value) {
     setDraft(old => ({ ...old, [key]: value }));
     setSaved(false);
   }
 
-  function saveDraft() {
+  // Local + Supabase Cloud Save
+  async function saveDraft() {
+    if (saving) return;
+
+    setSaving(true);
+    setSaved(false);
+
     try {
-      localStorage.setItem(
-        "bd_game_master_draft",
-        JSON.stringify(draft)
-      );
+      if (!db) {
+        throw new Error("Supabase configuration পাওয়া যায়নি।");
+      }
+
+      const { data: sessionData, error: sessionError } =
+        await db.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      const currentSession = sessionData.session;
+
+      if (!currentSession) {
+        throw new Error("Admin login session পাওয়া যায়নি।");
+      }
+
+      if (currentSession.user.id !== OWNER_ID) {
+        throw new Error("শুধু Owner Admin Settings Save করতে পারবেন।");
+      }
+
+      const { data: isAdmin, error: adminError } =
+        await db.rpc("is_admin");
+
+      if (adminError || isAdmin !== true) {
+        throw new Error("Admin অনুমতি যাচাই করা যায়নি।");
+      }
+
+      const { error: saveError } = await db
+        .from("game_admin_settings")
+        .upsert({
+          id: "global",
+          settings: draft,
+          updated_by: currentSession.user.id,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: "id"
+        });
+
+      if (saveError) throw saveError;
+
+      try {
+        localStorage.setItem(
+          "bd_game_master_draft",
+          JSON.stringify(draft)
+        );
+      } catch {}
+
+      setOwnerSession(currentSession);
       setSaved(true);
-    } catch {
-      alert("Settings এই ডিভাইসে সংরক্ষণ করা যায়নি।");
+      setCloudStatus("Cloud Saved · Supabase-এ Settings সংরক্ষিত হয়েছে");
+    } catch (err) {
+      setCloudStatus(
+        "Save Error: " + (err.message || "সংরক্ষণ করা যায়নি")
+      );
+
+      alert(
+        "Settings Save করা যায়নি:\n" +
+        (err.message || "অজানা সমস্যা")
+      );
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -113,6 +288,7 @@ export default function MasterControl() {
 
   function toggleMode(mode) {
     const enabled = draft.enabledModes.includes(mode);
+
     update(
       "enabledModes",
       enabled
@@ -138,10 +314,13 @@ export default function MasterControl() {
     <div className="master-control">
       <header className="master-header">
         <div>
-          <span className="master-kicker">BD GAME ADMINISTRATION</span>
+          <span className="master-kicker">
+            BD GAME ADMINISTRATION
+          </span>
           <h1>MASTER CONTROL</h1>
           <p>Game configuration workspace</p>
         </div>
+
         <div className="master-header-icon">
           <ShieldCheck size={34} />
         </div>
@@ -150,12 +329,18 @@ export default function MasterControl() {
       <div className="master-notice">
         <Shield size={19} />
         <div>
-          <b>Draft Control Mode</b>
+          <b>Cloud Draft Control</b>
           <p>
-            এখানে পরিবর্তনগুলো আগে খসড়া হিসেবে সংরক্ষণ হবে।
-            Player Game-এর live settings এখনো এই প্যানেলের সঙ্গে যুক্ত নয়।
+            Settings এখন Supabase Cloud-এ সংরক্ষণ করা যাবে।
+            তবে Player Game-এ live পরিবর্তন পাঠাতে আলাদা
+            Game integration প্রয়োজন।
           </p>
         </div>
+      </div>
+
+      <div className="master-cloud-status">
+        <Cloud size={18} />
+        <span>{cloudStatus}</span>
       </div>
 
       <div className="master-tool-grid">
@@ -181,10 +366,19 @@ export default function MasterControl() {
           {activeTool && <activeTool.icon size={28} />}
         </div>
 
+        {loading && (
+          <div className="master-info">
+            <LoaderCircle size={18} />
+            <span>Cloud Settings লোড হচ্ছে...</span>
+          </div>
+        )}
+
         {active === "Entry Control" && (
           <section className="master-panel">
             <h3>Entry Control System</h3>
-            <p>গেম চালু হলে কোন পেজ আগে দেখাবে তা নির্বাচন করুন।</p>
+            <p>
+              গেম চালু হলে কোন পেজ আগে দেখাবে তা নির্বাচন করুন।
+            </p>
 
             <label>Game Start Page</label>
             <select
@@ -199,7 +393,9 @@ export default function MasterControl() {
             <label>After Login</label>
             <select
               value={draft.loginDestination}
-              onChange={e => update("loginDestination", e.target.value)}
+              onChange={e =>
+                update("loginDestination", e.target.value)
+              }
             >
               {["Lobby", "Character", "Maps", "Profile"].map(page => (
                 <option key={page} value={page}>{page}</option>
@@ -224,10 +420,12 @@ export default function MasterControl() {
               <span>Game Start</span>
               <b>{draft.startPage}</b>
             </div>
+
             <div className="route-row">
               <span>Login Success</span>
               <b>{draft.loginDestination}</b>
             </div>
+
             <div className="route-row">
               <span>Available Buttons</span>
               <b>{draft.buttons.length}</b>
@@ -243,7 +441,9 @@ export default function MasterControl() {
         {active === "Button & UI Builder" && (
           <section className="master-panel">
             <h3>Button & UI Builder</h3>
-            <p>নিজের পছন্দমতো Button-এর নাম ও destination নির্ধারণ করুন।</p>
+            <p>
+              নিজের পছন্দমতো Button-এর নাম ও destination নির্ধারণ করুন।
+            </p>
 
             {draft.buttons.map(button => (
               <div className="master-button-row" key={button.id}>
@@ -293,6 +493,7 @@ export default function MasterControl() {
                 <h3>Visual Editor Preview</h3>
                 <p>তোমার Button layout-এর preview দেখো।</p>
               </div>
+
               <button
                 className="master-action secondary"
                 onClick={() => setPreview(!preview)}
@@ -305,7 +506,10 @@ export default function MasterControl() {
             {preview && (
               <div className="game-preview">
                 <div className="game-preview-logo">BD GAME</div>
-                <div className="game-preview-subtitle">BATTLE ARENA</div>
+                <div className="game-preview-subtitle">
+                  BATTLE ARENA
+                </div>
+
                 <div className="game-preview-buttons">
                   {draft.buttons.map(button => (
                     <button key={button.id}>
@@ -313,6 +517,7 @@ export default function MasterControl() {
                     </button>
                   ))}
                 </div>
+
                 <small>DESIGN PREVIEW ONLY</small>
               </div>
             )}
@@ -320,7 +525,9 @@ export default function MasterControl() {
             {!preview && (
               <div className="master-empty">
                 <Palette size={30} />
-                <span>Show Preview চাপলে Button Preview দেখা যাবে।</span>
+                <span>
+                  Show Preview চাপলে Button Preview দেখা যাবে।
+                </span>
               </div>
             )}
           </section>
@@ -329,7 +536,9 @@ export default function MasterControl() {
         {active === "Game Mode Control" && (
           <section className="master-panel">
             <h3>Game Mode Control</h3>
-            <p>যেসব Game Mode রাখতে চাও সেগুলো নির্বাচন করো।</p>
+            <p>
+              যেসব Game Mode রাখতে চাও সেগুলো নির্বাচন করো।
+            </p>
 
             <div className="master-mode-grid">
               {modes.map(mode => (
@@ -356,7 +565,9 @@ export default function MasterControl() {
         {active === "AI System" && (
           <section className="master-panel">
             <div className="ai-title">
-              <div className="ai-icon"><Bot size={28} /></div>
+              <div className="ai-icon">
+                <Bot size={28} />
+              </div>
               <div>
                 <h3>BD GAME AI SYSTEM</h3>
                 <p>AI assistant configuration</p>
@@ -367,11 +578,15 @@ export default function MasterControl() {
               <input
                 type="checkbox"
                 checked={draft.aiEnabled}
-                onChange={e => update("aiEnabled", e.target.checked)}
+                onChange={e =>
+                  update("aiEnabled", e.target.checked)
+                }
               />
               <span>
                 <b>Enable AI System</b>
-                <small>AI feature configuration চালু রাখুন</small>
+                <small>
+                  AI feature configuration চালু রাখুন
+                </small>
               </span>
             </label>
 
@@ -379,11 +594,15 @@ export default function MasterControl() {
               <input
                 type="checkbox"
                 checked={draft.aiApproval}
-                onChange={e => update("aiApproval", e.target.checked)}
+                onChange={e =>
+                  update("aiApproval", e.target.checked)
+                }
               />
               <span>
                 <b>Require Admin Approval</b>
-                <small>AI-এর প্রস্তাব কার্যকর করার আগে Admin অনুমোদন লাগবে</small>
+                <small>
+                  AI-এর প্রস্তাব কার্যকর করার আগে Admin অনুমোদন লাগবে
+                </small>
               </span>
             </label>
 
@@ -433,27 +652,36 @@ export default function MasterControl() {
             <div className="master-warning">
               AI service চালাতে নিরাপদ server-side AI connection,
               permissions এবং database integration লাগবে।
-              এই checkbox-গুলো এখন শুধু draft preference সংরক্ষণ করে।
+              এই checkbox-গুলো এখন preference সংরক্ষণ করে।
             </div>
           </section>
         )}
 
         <div className="master-footer">
-          <button className="master-action save-button" onClick={saveDraft}>
-            <Save size={18} /> Save Draft
+          <button
+            className="master-action save-button"
+            onClick={saveDraft}
+            disabled={saving || loading}
+          >
+            {saving
+              ? <LoaderCircle className="spin" size={18} />
+              : <Save size={18} />}
+            {saving ? "Saving..." : "Save Draft"}
           </button>
+
           <span className={saved ? "saved-label" : "unsaved-label"}>
             {saved
-              ? "Draft এই ডিভাইসে সংরক্ষিত হয়েছে।"
-              : "পরিবর্তন এখনো সংরক্ষণ করা হয়নি"}
+              ? "Cloud-এ Settings সংরক্ষিত হয়েছে।"
+              : "পরিবর্তন এখনো Cloud-এ সংরক্ষণ করা হয়নি।"}
           </span>
         </div>
 
         <div className="master-bottom-note">
-          <Settings size={16} />
+          <Cloud size={16} />
           <span>
-            Saved draft এই Admin device-এর browser storage-এ থাকে।
-            এটি Player Game-এ live update পাঠায় না।
+            Save Draft চাপলে Settings Supabase Cloud এবং এই
+            Browser-এ সংরক্ষণ করা হবে। Player Game-এ live update
+            চালু করতে Player App integration এখনো প্রয়োজন।
           </span>
         </div>
       </main>
