@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://kvloogdidadztnpgcvqu.supabase.co";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 const OWNER_ID = "abae9dc5-08d4-4f34-8cbb-c350f9e5736f";
 
 const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -46,36 +45,12 @@ const defaultSettings = {
 };
 
 const modules = [
-  {
-    id: "entry",
-    name: "Entry Control",
-    description: "Game start page control"
-  },
-  {
-    id: "routing",
-    name: "Routing Control",
-    description: "Game page navigation settings"
-  },
-  {
-    id: "buttons",
-    name: "Button & UI Builder",
-    description: "Button and interface settings"
-  },
-  {
-    id: "visual",
-    name: "Visual Editor",
-    description: "Game appearance settings"
-  },
-  {
-    id: "gameMode",
-    name: "Game Mode Control",
-    description: "Game mode settings"
-  },
-  {
-    id: "ai",
-    name: "AI System",
-    description: "AI configuration settings"
-  }
+  { id: "entry", name: "Entry Control" },
+  { id: "routing", name: "Routing Control" },
+  { id: "buttons", name: "Button & UI Builder" },
+  { id: "visual", name: "Visual Editor" },
+  { id: "gameMode", name: "Game Mode Control" },
+  { id: "ai", name: "AI System" }
 ];
 
 export default function MasterControl() {
@@ -83,9 +58,7 @@ export default function MasterControl() {
   const [active, setActive] = useState("entry");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
   const [cloudStatus, setCloudStatus] = useState("Checking cloud connection...");
-  const [publishStatus, setPublishStatus] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -101,7 +74,7 @@ export default function MasterControl() {
         const session = sessionData?.session;
 
         if (!session || session.user.id !== OWNER_ID) {
-          throw new Error("Owner Admin session পাওয়া যায়নি। আবার Admin Login করুন।");
+          throw new Error("Owner Admin session পাওয়া যায়নি।");
         }
 
         const { data: adminCheck, error: adminError } =
@@ -125,7 +98,27 @@ export default function MasterControl() {
         if (data?.settings) {
           setDraft({
             ...defaultSettings,
-            ...data.settings
+            ...data.settings,
+            entry: {
+              ...defaultSettings.entry,
+              ...data.settings.entry
+            },
+            routing: {
+              ...defaultSettings.routing,
+              ...data.settings.routing
+            },
+            visual: {
+              ...defaultSettings.visual,
+              ...data.settings.visual
+            },
+            gameMode: {
+              ...defaultSettings.gameMode,
+              ...data.settings.gameMode
+            },
+            ai: {
+              ...defaultSettings.ai,
+              ...data.settings.ai
+            }
           });
         }
 
@@ -181,14 +174,17 @@ export default function MasterControl() {
     return session;
   }
 
+  // একই বাটনে Admin Save + Player Game Publish
   async function saveDraft() {
     setSaving(true);
     setError("");
+    setCloudStatus("Saving Admin and Player settings...");
 
     try {
       const session = await verifyOwner();
 
-      const { error: saveError } = await db
+      // ১. Private Admin settings
+      const { error: adminSaveError } = await db
         .from("game_admin_settings")
         .upsert(
           {
@@ -200,34 +196,10 @@ export default function MasterControl() {
           { onConflict: "id" }
         );
 
-      if (saveError) throw saveError;
+      if (adminSaveError) throw adminSaveError;
 
-      localStorage.setItem(
-        "bd_game_master_draft",
-        JSON.stringify(draft)
-      );
-
-      setCloudStatus("Cloud Saved");
-      alert("Cloud Save সফল হয়েছে!");
-    } catch (err) {
-      setCloudStatus("Cloud Save Failed");
-      setError(err.message || "Save failed");
-      alert("Cloud Save হয়নি: " + (err.message || "Unknown error"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function publishToPlayerGame() {
-    setPublishing(true);
-    setError("");
-    setPublishStatus("Publishing...");
-
-    try {
-      const session = await verifyOwner();
-
-      // Only public gameplay settings are published.
-      // Private Admin and AI settings are not included.
+      // ২. Public Player Game settings
+      // AI settings এখানে প্রকাশ করা হচ্ছে না।
       const publicSettings = {
         entry: draft.entry,
         routing: draft.routing,
@@ -236,7 +208,7 @@ export default function MasterControl() {
         gameMode: draft.gameMode
       };
 
-      const { error: publishError } = await db
+      const { error: liveSaveError } = await db
         .from("game_live_settings")
         .upsert(
           {
@@ -248,16 +220,22 @@ export default function MasterControl() {
           { onConflict: "id" }
         );
 
-      if (publishError) throw publishError;
+      if (liveSaveError) throw liveSaveError;
 
-      setPublishStatus("Published successfully");
-      alert("Player Game-এ Settings Publish হয়েছে!");
+      localStorage.setItem(
+        "bd_game_master_draft",
+        JSON.stringify(draft)
+      );
+
+      setCloudStatus("Admin Saved · Player Settings Published");
+      alert("সফল হয়েছে! Admin ও Player Game settings Cloud-এ সেভ হয়েছে।");
+
     } catch (err) {
-      setPublishStatus("Publish Failed");
-      setError(err.message || "Publish failed");
-      alert("Publish হয়নি: " + (err.message || "Unknown error"));
+      setCloudStatus("Cloud Save Failed");
+      setError(err.message || "Save failed");
+      alert("Save হয়নি: " + (err.message || "Unknown error"));
     } finally {
-      setPublishing(false);
+      setSaving(false);
     }
   }
 
@@ -267,7 +245,7 @@ export default function MasterControl() {
         return (
           <>
             <h2>Entry Control System</h2>
-            <p>Select which page will be displayed first when the game starts.</p>
+            <p>Game start page control</p>
 
             <label>Game Start Page</label>
             <select
@@ -276,7 +254,10 @@ export default function MasterControl() {
                 updateSection("entry", "startPage", e.target.value)
               }
             >
-              {["Splash", "Entry", "Login", "After Login", "Lobby", "Character", "Maps", "Profile"].map(item => (
+              {[
+                "Splash", "Entry", "Login", "After Login",
+                "Lobby", "Character", "Maps", "Profile"
+              ].map(item => (
                 <option key={item}>{item}</option>
               ))}
             </select>
@@ -293,7 +274,9 @@ export default function MasterControl() {
               ))}
             </select>
 
-            <p>Preview: Entry → {draft.entry.startPage} → {draft.entry.afterLogin}</p>
+            <p>
+              Preview: Entry → {draft.entry.startPage} → {draft.entry.afterLogin}
+            </p>
           </>
         );
 
@@ -319,14 +302,17 @@ export default function MasterControl() {
         return (
           <>
             <h2>Button & UI Builder</h2>
-            <p>Manage the button labels displayed in your configuration.</p>
+            <p>Manage button labels</p>
             <textarea
               rows="6"
               value={draft.buttons.join("\n")}
               onChange={e =>
                 setDraft(previous => ({
                   ...previous,
-                  buttons: e.target.value.split("\n")
+                  buttons: e.target.value
+                    .split("\n")
+                    .map(item => item.trim())
+                    .filter(Boolean)
                 }))
               }
               placeholder={"Shop\nCharacter\nProfile"}
@@ -399,6 +385,7 @@ export default function MasterControl() {
         return (
           <>
             <h2>AI System</h2>
+
             <label>
               <input
                 type="checkbox"
@@ -486,14 +473,6 @@ export default function MasterControl() {
           margin: 12px 0;
         }
         .master-control .error { color: #ffaaaa; }
-        .master-control .publish-button {
-          background: #16834a;
-          margin-left: 8px;
-        }
-        .master-control .publish-status {
-          color: #8df5b5;
-          margin-top: 10px;
-        }
       `}</style>
 
       <h1>MASTER CONTROL</h1>
@@ -523,26 +502,18 @@ export default function MasterControl() {
       </div>
 
       <div className="action-buttons">
-        <button onClick={saveDraft} disabled={loading || saving || publishing}>
-          {saving ? "Saving..." : "Save to Cloud"}
-        </button>
-
         <button
-          className="publish-button"
-          onClick={publishToPlayerGame}
-          disabled={loading || saving || publishing}
+          onClick={saveDraft}
+          disabled={loading || saving}
         >
-          {publishing ? "Publishing..." : "Publish to Player Game"}
+          {saving ? "Saving..." : "Save to Cloud"}
         </button>
       </div>
 
-      {publishStatus && (
-        <p className="publish-status">{publishStatus}</p>
-      )}
-
       <p>
         Admin settings are stored privately.
-        Public gameplay settings are published separately to Player Game.
+        Public gameplay settings are saved automatically
+        when Save to Cloud is pressed.
       </p>
     </div>
   );
