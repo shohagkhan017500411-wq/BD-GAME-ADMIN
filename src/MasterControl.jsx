@@ -58,7 +58,9 @@ export default function MasterControl() {
   const [active, setActive] = useState("entry");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [cloudStatus, setCloudStatus] = useState("Checking cloud connection...");
+  const [cloudStatus, setCloudStatus] = useState(
+    "Checking cloud connection..."
+  );
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -66,6 +68,10 @@ export default function MasterControl() {
 
     async function loadSettings() {
       try {
+        if (!SUPABASE_ANON_KEY) {
+          throw new Error("Supabase environment key পাওয়া যায়নি।");
+        }
+
         const { data: sessionData, error: sessionError } =
           await db.auth.getSession();
 
@@ -81,8 +87,9 @@ export default function MasterControl() {
           await db.rpc("is_admin");
 
         if (adminError) throw adminError;
+
         if (adminCheck !== true) {
-          throw new Error("Admin অনুমতি যাচাই করা যায়নি।");
+          throw new Error("Admin permission যাচাই করা যায়নি।");
         }
 
         const { data, error: readError } = await db
@@ -96,29 +103,34 @@ export default function MasterControl() {
         if (!mounted) return;
 
         if (data?.settings) {
+          const saved = data.settings;
+
           setDraft({
             ...defaultSettings,
-            ...data.settings,
+            ...saved,
             entry: {
               ...defaultSettings.entry,
-              ...data.settings.entry
+              ...saved.entry
             },
             routing: {
               ...defaultSettings.routing,
-              ...data.settings.routing
+              ...saved.routing
             },
             visual: {
               ...defaultSettings.visual,
-              ...data.settings.visual
+              ...saved.visual
             },
             gameMode: {
               ...defaultSettings.gameMode,
-              ...data.settings.gameMode
+              ...saved.gameMode
             },
             ai: {
               ...defaultSettings.ai,
-              ...data.settings.ai
-            }
+              ...saved.ai
+            },
+            buttons: Array.isArray(saved.buttons)
+              ? saved.buttons
+              : []
           });
         }
 
@@ -126,7 +138,7 @@ export default function MasterControl() {
       } catch (err) {
         if (mounted) {
           setCloudStatus("Cloud Not Connected");
-          setError(err.message || "Cloud settings load failed");
+          setError(err.message || "Settings load failed");
         }
       } finally {
         if (mounted) setLoading(false);
@@ -174,7 +186,7 @@ export default function MasterControl() {
     return session;
   }
 
-  // একই বাটনে Admin Save + Player Game Publish
+  // একই বাটনে Admin Save এবং Player Game Update
   async function saveDraft() {
     setSaving(true);
     setError("");
@@ -183,7 +195,7 @@ export default function MasterControl() {
     try {
       const session = await verifyOwner();
 
-      // ১. Private Admin settings
+      // Private Admin settings
       const { error: adminSaveError } = await db
         .from("game_admin_settings")
         .upsert(
@@ -198,8 +210,8 @@ export default function MasterControl() {
 
       if (adminSaveError) throw adminSaveError;
 
-      // ২. Public Player Game settings
-      // AI settings এখানে প্রকাশ করা হচ্ছে না।
+      // Public Player Game settings
+      // AI-এর ব্যক্তিগত Admin settings প্রকাশ করা হবে না।
       const publicSettings = {
         entry: draft.entry,
         routing: draft.routing,
@@ -222,17 +234,25 @@ export default function MasterControl() {
 
       if (liveSaveError) throw liveSaveError;
 
-      localStorage.setItem(
-        "bd_game_master_draft",
-        JSON.stringify(draft)
-      );
+      try {
+        localStorage.setItem(
+          "bd_game_master_draft",
+          JSON.stringify(draft)
+        );
+      } catch (storageError) {
+        console.warn("Local save unavailable:", storageError);
+      }
 
       setCloudStatus("Admin Saved · Player Settings Published");
-      alert("সফল হয়েছে! Admin ও Player Game settings Cloud-এ সেভ হয়েছে।");
+
+      alert(
+        "সফল হয়েছে! Admin ও Player Game settings Cloud-এ সেভ হয়েছে।"
+      );
 
     } catch (err) {
       setCloudStatus("Cloud Save Failed");
       setError(err.message || "Save failed");
+
       alert("Save হয়নি: " + (err.message || "Unknown error"));
     } finally {
       setSaving(false);
@@ -255,8 +275,14 @@ export default function MasterControl() {
               }
             >
               {[
-                "Splash", "Entry", "Login", "After Login",
-                "Lobby", "Character", "Maps", "Profile"
+                "Splash",
+                "Entry",
+                "Login",
+                "After Login",
+                "Lobby",
+                "Character",
+                "Maps",
+                "Profile"
               ].map(item => (
                 <option key={item}>{item}</option>
               ))}
@@ -274,8 +300,31 @@ export default function MasterControl() {
               ))}
             </select>
 
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.entry.splash}
+                onChange={e =>
+                  updateSection("entry", "splash", e.target.checked)
+                }
+              />
+              Enable Splash Screen
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.entry.login}
+                onChange={e =>
+                  updateSection("entry", "login", e.target.checked)
+                }
+              />
+              Enable Login
+            </label>
+
             <p>
-              Preview: Entry → {draft.entry.startPage} → {draft.entry.afterLogin}
+              Preview: Entry → {draft.entry.startPage} →{" "}
+              {draft.entry.afterLogin}
             </p>
           </>
         );
@@ -284,6 +333,7 @@ export default function MasterControl() {
         return (
           <>
             <h2>Routing Control</h2>
+
             {Object.entries(draft.routing).map(([key, value]) => (
               <label key={key}>
                 {key.toUpperCase()}
@@ -302,9 +352,10 @@ export default function MasterControl() {
         return (
           <>
             <h2>Button & UI Builder</h2>
-            <p>Manage button labels</p>
+            <p>প্রতি লাইনে একটি Button Label লিখবে।</p>
+
             <textarea
-              rows="6"
+              rows="7"
               value={draft.buttons.join("\n")}
               onChange={e =>
                 setDraft(previous => ({
@@ -315,7 +366,7 @@ export default function MasterControl() {
                     .filter(Boolean)
                 }))
               }
-              placeholder={"Shop\nCharacter\nProfile"}
+              placeholder={"Shop\nCharacter\nProfile\nSettings"}
             />
           </>
         );
@@ -354,7 +405,11 @@ export default function MasterControl() {
                 type="checkbox"
                 checked={draft.visual.animations}
                 onChange={e =>
-                  updateSection("visual", "animations", e.target.checked)
+                  updateSection(
+                    "visual",
+                    "animations",
+                    e.target.checked
+                  )
                 }
               />
               Enable Animations
@@ -366,6 +421,7 @@ export default function MasterControl() {
         return (
           <>
             <h2>Game Mode Control</h2>
+
             {Object.entries(draft.gameMode).map(([key, value]) => (
               <label key={key}>
                 <input
@@ -425,8 +481,15 @@ export default function MasterControl() {
           border-radius: 14px;
           font-family: Arial, sans-serif;
         }
-        .master-control h1 { color: #ffd447; }
-        .master-control h2 { color: #70b9ff; }
+
+        .master-control h1 {
+          color: #ffd447;
+        }
+
+        .master-control h2 {
+          color: #70b9ff;
+        }
+
         .master-control button,
         .master-control select,
         .master-control input:not([type="checkbox"]),
@@ -439,40 +502,50 @@ export default function MasterControl() {
           color: white;
           max-width: 100%;
         }
+
         .master-control label {
           display: block;
           margin: 12px 0;
         }
+
         .master-control button {
           cursor: pointer;
           background: #1766c2;
           border: 0;
           font-weight: bold;
         }
+
         .master-control button:disabled {
           opacity: .5;
           cursor: not-allowed;
         }
+
         .master-control .tabs {
           display: flex;
           flex-wrap: wrap;
           gap: 7px;
           margin: 16px 0;
         }
+
         .master-control .tabs button {
           background: #263b5d;
         }
+
         .master-control .tabs button.active {
           background: #d7a900;
           color: #101a30;
         }
+
         .master-control .status {
           padding: 10px;
           background: #1d304c;
           border-radius: 8px;
           margin: 12px 0;
         }
-        .master-control .error { color: #ffaaaa; }
+
+        .master-control .error {
+          color: #ffaaaa;
+        }
       `}</style>
 
       <h1>MASTER CONTROL</h1>
