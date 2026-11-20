@@ -1,448 +1,1184 @@
-
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { createClient } from "@supabase/supabase-js";
 import {
-  Map, Plus, Save, RefreshCw, Trash2,
-  Edit3, Upload, ArrowLeft, MapPin
+  Activity, Bell, Check, Crown, Gamepad2, Gem,
+  LayoutDashboard, LogOut, Menu, MessageCircle,
+  Search, Send, Settings, Shield, ShieldCheck,
+  Sparkles, Sword, Trophy, UserCog, Users, X,
+  Map, ShoppingBag, Palette, LoaderCircle,
+  Plus, RefreshCw, Ban, History
 } from "lucide-react";
+import MapManagement from "./MapManagement";
+import MasterControl from "./MasterControl";
+import "./style.css";
+
+const URL = import.meta.env.VITE_SUPABASE_URL;
+const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+const db = URL && KEY
+  ? createClient(URL, KEY, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false,
+        flowType: "pkce"
+      }
+    })
+  : null;
 
 const OWNER_ID = "abae9dc5-08d4-4f34-8cbb-c350f9e5736f";
 
-const emptyMap = {
-  map_name: "",
-  map_description: "",
-  map_type: "Island",
-  map_size: "Large",
-  status: "draft",
-  map_config: {
-    terrain: "Island",
-    spawn_points: [],
-    loot_areas: [],
-    safe_zone: { x: 50, y: 50, size: 30 },
-    airdrop_points: []
-  }
+const PLAYER_API =
+  "https://bd-game.shohagkhan017500411.workers.dev/api/admin/players";
+
+const MODULES = [
+  ["Game Dashboard", LayoutDashboard],
+  ["Player Management", Users],
+  ["Character Management", UserCog],
+  ["Outfit & Skin Management", Palette],
+  ["Weapon Control", Sword],
+  ["Map Management", Map],
+  ["Game Mode Management", Gamepad2],
+  ["Room & Match Management", Activity],
+  ["Diamond & Coin Management", Gem],
+  ["Game Shop Management", ShoppingBag],
+  ["Event & Mission Management", Sparkles],
+  ["Rank & Leaderboard Management", Trophy],
+  ["Chat & Support Management", MessageCircle],
+  ["Notification Management", Bell],
+  ["Intro & Lobby Management", Gamepad2],
+  ["Game Update Management", Activity],
+  ["Security & Reports Management", ShieldCheck],
+  ["Game Settings Management", Settings],
+  ["Emote Management", Sparkles],
+  ["Animation Management", Activity],
+  ["Diamond Send Management", Send],
+  ["AI System", Sparkles]
+];
+
+const MODULE_TABLES = {
+  "Character Management": "game_characters",
+  "Outfit & Skin Management": "game_outfits",
+  "Weapon Control": "game_weapons",
+  "Map Management": "game_maps",
+  "Game Mode Management": "game_modes",
+  "Room & Match Management": "game_rooms",
+  "Game Shop Management": "game_shop_items",
+  "Event & Mission Management": "game_events",
+  "Rank & Leaderboard Management": "game_rank_settings",
+  "Chat & Support Management": "game_support_tickets",
+  "Notification Management": "game_notifications",
+  "Intro & Lobby Management": "game_lobby_settings",
+  "Game Update Management": "game_updates",
+  "Security & Reports Management": "game_security_reports",
+  "Emote Management": "game_emotes",
+  "Animation Management": "game_animations",
+  "Diamond Send Management": "game_diamond_transfers"
 };
 
-export default function MapManagement({ db, onBack }) {
-  const [maps, setMaps] = useState([]);
-  const [draft, setDraft] = useState(emptyMap);
-  const [editingId, setEditingId] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
+const PLANS = [
+  {
+    id: "weekly",
+    label: "Weekly",
+    total: 500,
+    instant: 250,
+    deferred: 250,
+    days: 7
+  },
+  {
+    id: "weekly_lite",
+    label: "Weekly Lite",
+    total: 300,
+    instant: 150,
+    deferred: 150,
+    days: 7
+  },
+  {
+    id: "monthly",
+    label: "Monthly",
+    total: 3000,
+    instant: 1500,
+    deferred: 1500,
+    days: 30,
+    daily: 50
+  }
+];
 
-  const [spawnText, setSpawnText] = useState("");
-  const [lootText, setLootText] = useState("");
-  const [airdropText, setAirdropText] = useState("");
+function App() {
+  const [session, setSession] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [page, setPage] = useState("Game Dashboard");
+  const [mobile, setMobile] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [query, setQuery] = useState("");
 
-  const notify = (text) => {
-    setMessage(text);
-    setTimeout(() => setMessage(""), 3500);
+  const [dashboardImage, setDashboardImage] = useState(() => {
+    try {
+      return localStorage.getItem("bd_game_dashboard_image") || "";
+    } catch {
+      return "";
+    }
+  });
+
+  const [players, setPlayers] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [roleHistory, setRoleHistory] = useState([]);
+  const [appwritePlayers, setAppwritePlayers] = useState([]);
+  const [playerApiStatus, setPlayerApiStatus] = useState("Checking...");
+
+  const [playerName, setPlayerName] = useState("");
+  const [playerUid, setPlayerUid] = useState("");
+  const [roleName, setRoleName] = useState("");
+  const [planId, setPlanId] = useState("weekly");
+  const [orderPlayer, setOrderPlayer] = useState("");
+  const [orderAmount, setOrderAmount] = useState("");
+
+  const [moduleRows, setModuleRows] = useState([]);
+  const [moduleDraft, setModuleDraft] = useState({
+    name: "",
+    description: "",
+    image_url: "",
+    status: "active"
+  });
+  const [moduleEditingId, setModuleEditingId] = useState(null);
+  const [moduleLoading, setModuleLoading] = useState(false);
+
+  const notify = (message) => {
+    setNotice(message);
+    setTimeout(() => setNotice(""), 3500);
   };
 
-  async function loadMaps() {
-    if (!db) return;
+  function handleDashboardImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    setLoading(true);
+    if (!file.type.startsWith("image/")) {
+      notify("Please select an image.");
+      return;
+    }
 
-    try {
-      const { data: sessionData } = await db.auth.getSession();
+    if (file.size > 50 * 1024 * 1024) {
+      notify("Image must be under 50 MB.");
+      return;
+    }
 
-      if (sessionData?.session?.user?.id !== OWNER_ID) {
-        throw new Error("Owner Admin permission নেই।");
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      const imageData = String(reader.result || "");
+      try {
+        localStorage.setItem("bd_game_dashboard_image", imageData);
+        setDashboardImage(imageData);
+        notify("Dashboard photo saved on this device.");
+      } catch {
+        notify("Could not save image. Try a smaller photo.");
+      }
+    };
+
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  }
+
+  useEffect(() => {
+    if (!db) {
+      setBusy(false);
+      return;
+    }
+
+    const checkSession = async () => {
+      const { data } = await db.auth.getSession();
+
+      if (data?.session) {
+        const allowed = await verifyAdmin(data.session);
+
+        if (allowed) {
+          setSession(data.session);
+          await loadData();
+        } else {
+          await db.auth.signOut();
+        }
       }
 
+      setBusy(false);
+    };
+
+    checkSession();
+
+    const { data: listener } = db.auth.onAuthStateChange(
+      async (_event, nextSession) => {
+        if (!nextSession) {
+          setSession(null);
+          return;
+        }
+
+        const allowed = await verifyAdmin(nextSession);
+        if (allowed) setSession(nextSession);
+      }
+    );
+
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  async function verifyAdmin(currentSession) {
+    if (!currentSession?.user) return false;
+    if (currentSession.user.id === OWNER_ID) return true;
+
+    const { data, error } = await db.rpc("is_admin");
+
+    if (error) {
+      console.error("Admin verification:", error);
+      return false;
+    }
+
+    return data === true;
+  }
+
+  async function login(event) {
+    event.preventDefault();
+
+    if (!db) {
+      notify("Supabase configuration is missing.");
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const { data, error } = await db.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword
+      });
+
+      if (error) throw error;
+
+      const allowed = await verifyAdmin(data.session);
+
+      if (!allowed) {
+        await db.auth.signOut();
+        throw new Error("এই অ্যাকাউন্টের Admin অনুমতি নেই।");
+      }
+
+      setSession(data.session);
+      await loadData();
+      notify("Admin login successful.");
+    } catch (error) {
+      notify(error.message || "Login failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetPassword() {
+    if (!loginEmail.trim()) {
+      notify("আগে Gmail লিখুন।");
+      return;
+    }
+
+    const { error } = await db.auth.resetPasswordForEmail(
+      loginEmail.trim(),
+      { redirectTo: window.location.origin }
+    );
+
+    if (error) notify(error.message);
+    else notify("Password reset email পাঠানো হয়েছে।");
+  }
+
+  async function logout() {
+    await db.auth.signOut();
+    setSession(null);
+    setPage("Game Dashboard");
+    notify("Logged out.");
+  }
+
+  async function loadData() {
+    if (!db) return;
+
+    const requests = await Promise.all([
+      db.from("game_players").select("*").order("created_at", {
+        ascending: false
+      }),
+      db.from("player_roles").select("*"),
+      db.from("reward_orders").select("*").order("created_at", {
+        ascending: false
+      }),
+      db.from("diamond_distributions").select("*").order("created_at", {
+        ascending: false
+      }),
+      db.from("player_role_history").select("*").order("created_at", {
+        ascending: false
+      })
+    ]);
+
+    setPlayers(requests[0].data || []);
+    setRoles(requests[1].data || []);
+    setOrders(requests[2].data || []);
+    setHistory(requests[3].data || []);
+    setRoleHistory(requests[4].data || []);
+
+    await refreshPlayerApp();
+  }
+
+  async function refreshPlayerApp() {
+    if (!session?.access_token) return;
+
+    try {
+      const response = await fetch(PLAYER_API, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        },
+        signal: AbortSignal.timeout(15000)
+      });
+
+      if (!response.ok) {
+        setPlayerApiStatus("API unavailable");
+        return;
+      }
+
+      const result = await response.json();
+
+      setAppwritePlayers(
+        Array.isArray(result) ? result : result.players || []
+      );
+
+      setPlayerApiStatus("Connected");
+    } catch (error) {
+      console.error(error);
+      setPlayerApiStatus("Connection failed");
+    }
+  }
+
+  async function loadModuleRows(moduleName = page) {
+    const table = MODULE_TABLES[moduleName];
+
+    if (!table) {
+      setModuleRows([]);
+      return;
+    }
+
+    setModuleLoading(true);
+
+    try {
       const { data, error } = await db
-        .from("game_map_configs")
+        .from(table)
         .select("*")
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-
-      setMaps(data || []);
+      setModuleRows(data || []);
     } catch (error) {
       notify(error.message);
     } finally {
-      setLoading(false);
+      setModuleLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadMaps();
-  }, []);
-
-  function updateField(key, value) {
-    setDraft(previous => ({
-      ...previous,
-      [key]: value
-    }));
-  }
-
-  function updateConfig(key, value) {
-    setDraft(previous => ({
-      ...previous,
-      map_config: {
-        ...previous.map_config,
-        [key]: value
-      }
-    }));
-  }
-
-  function resetForm() {
-    setDraft({
-      ...emptyMap,
-      map_config: {
-        ...emptyMap.map_config,
-        safe_zone: { ...emptyMap.map_config.safe_zone }
-      }
-    });
-    setEditingId(null);
-    setSpawnText("");
-    setLootText("");
-    setAirdropText("");
-  }
-
-  async function saveMap(event) {
+  async function saveModuleItem(event) {
     event.preventDefault();
 
-    if (!draft.map_name.trim()) {
-      notify("Map Name লিখুন।");
-      return;
-    }
+    const table = MODULE_TABLES[page];
+    if (!table) return;
 
-    setSaving(true);
+    setModuleLoading(true);
 
     try {
-      const { data: sessionData } = await db.auth.getSession();
-
-      if (sessionData?.session?.user?.id !== OWNER_ID) {
-        throw new Error("Owner Admin permission নেই।");
-      }
-
-      const finalData = {
-        ...draft,
-        map_config: {
-          ...draft.map_config,
-          spawn_points: spawnText.split("\n").map(x => x.trim()).filter(Boolean),
-          loot_areas: lootText.split("\n").map(x => x.trim()).filter(Boolean),
-          airdrop_points: airdropText.split("\n").map(x => x.trim()).filter(Boolean)
-        },
-        updated_at: new Date().toISOString()
-      };
-
       let result;
 
-      if (editingId) {
+      if (moduleEditingId) {
         result = await db
-          .from("game_map_configs")
-          .update(finalData)
-          .eq("id", editingId);
+          .from(table)
+          .update(moduleDraft)
+          .eq("id", moduleEditingId);
       } else {
-        result = await db
-          .from("game_map_configs")
-          .insert([finalData]);
+        result = await db.from(table).insert([moduleDraft]);
       }
 
       if (result.error) throw result.error;
 
-      notify(editingId ? "Map Updated!" : "New Map Saved!");
-      resetForm();
-      await loadMaps();
+      notify(moduleEditingId ? "Updated successfully." : "Added successfully.");
+
+      setModuleDraft({
+        name: "",
+        description: "",
+        image_url: "",
+        status: "active"
+      });
+
+      setModuleEditingId(null);
+      await loadModuleRows(page);
     } catch (error) {
       notify(error.message);
     } finally {
-      setSaving(false);
+      setModuleLoading(false);
     }
   }
 
-  function editMap(item) {
-    setEditingId(item.id);
+  async function deleteModuleItem(id) {
+    if (!window.confirm("এই তথ্যটি মুছে ফেলতে চান?")) return;
 
-    setDraft({
-      ...emptyMap,
-      ...item,
-      map_config: {
-        ...emptyMap.map_config,
-        ...(item.map_config || {})
-      }
-    });
-
-    setSpawnText((item.map_config?.spawn_points || []).join("\n"));
-    setLootText((item.map_config?.loot_areas || []).join("\n"));
-    setAirdropText((item.map_config?.airdrop_points || []).join("\n"));
-
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  async function publishMap(item) {
-    if (!window.confirm("এই Map Publish করতে চান?")) return;
-
-    try {
-      const { data: sessionData } = await db.auth.getSession();
-
-      if (sessionData?.session?.user?.id !== OWNER_ID) {
-        throw new Error("Owner Admin permission নেই।");
-      }
-
-      const { error } = await db
-        .from("game_map_configs")
-        .update({
-          status: "published",
-          published_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", item.id);
-
-      if (error) throw error;
-
-      notify("Map Published!");
-      await loadMaps();
-    } catch (error) {
-      notify(error.message);
-    }
-  }
-
-  async function deleteMap(id) {
-    if (!window.confirm("এই Map মুছে ফেলতে চান?")) return;
+    const table = MODULE_TABLES[page];
 
     try {
       const { error } = await db
-        .from("game_map_configs")
+        .from(table)
         .delete()
         .eq("id", id);
 
       if (error) throw error;
 
-      notify("Map Deleted!");
-      await loadMaps();
+      notify("Deleted successfully.");
+      await loadModuleRows(page);
     } catch (error) {
       notify(error.message);
     }
   }
 
-  const config = draft.map_config;
+  function editModuleItem(item) {
+    setModuleEditingId(item.id);
+    setModuleDraft({ ...item });
+  }
 
-  return (
-    <div className="page-content map-manager">
-      <div className="map-manager-heading">
-        <button onClick={onBack}>
-          <ArrowLeft size={17} /> Back
-        </button>
+  useEffect(() => {
+    if (session && MODULE_TABLES[page]) {
+      loadModuleRows(page);
+    }
+  }, [page, session]);
 
-        <div>
-          <h1><Map size={25} /> Map Management</h1>
-          <p>Create, edit, save and publish game maps</p>
-        </div>
+  async function addPlayer(event) {
+    event.preventDefault();
 
-        <button onClick={loadMaps}>
-          <RefreshCw size={16} /> Refresh
-        </button>
-      </div>
+    if (!playerName.trim() || !playerUid.trim()) {
+      notify("Player name এবং UID দিন।");
+      return;
+    }
 
-      {message && <div className="map-message">{message}</div>}
+    const { error } = await db.from("game_players").insert([{
+      player_name: playerName.trim(),
+      player_uid: playerUid.trim()
+    }]);
 
-      <form className="panel" onSubmit={saveMap}>
-        <h2>{editingId ? "Edit Map" : "Create New Map"}</h2>
+    if (error) {
+      notify(error.message);
+      return;
+    }
 
-        <label>Map Name</label>
-        <input
-          value={draft.map_name}
-          onChange={e => updateField("map_name", e.target.value)}
-          placeholder="Enter map name"
-          required
-        />
+    setPlayerName("");
+    setPlayerUid("");
+    notify("Player added.");
+    await loadData();
+  }
 
-        <label>Description</label>
-        <textarea
-          rows={3}
-          value={draft.map_description}
-          onChange={e => updateField("map_description", e.target.value)}
-          placeholder="Map description"
-        />
+  async function assignRole(event) {
+    event.preventDefault();
 
-        <div className="map-form-grid">
-          <div>
-            <label>Map Type</label>
-            <select
-              value={draft.map_type}
-              onChange={e => updateField("map_type", e.target.value)}
-            >
-              <option>Island</option>
-              <option>Forest</option>
-              <option>Desert</option>
-              <option>City</option>
-              <option>Snow</option>
-            </select>
-          </div>
+    if (!orderPlayer || !roleName.trim()) {
+      notify("Player এবং Role নির্বাচন করুন।");
+      return;
+    }
 
-          <div>
-            <label>Map Size</label>
-            <select
-              value={draft.map_size}
-              onChange={e => updateField("map_size", e.target.value)}
-            >
-              <option>Small</option>
-              <option>Medium</option>
-              <option>Large</option>
-              <option>Extra Large</option>
-            </select>
-          </div>
-        </div>
+    const { error } = await db.from("player_roles").insert([{
+      player_id: orderPlayer,
+      role_name: roleName.trim()
+    }]);
 
-        <h3>Map Environment</h3>
+    if (error) {
+      notify(error.message);
+      return;
+    }
 
-        <label>Terrain</label>
-        <select
-          value={config.terrain}
-          onChange={e => updateConfig("terrain", e.target.value)}
-        >
-          <option>Island</option>
-          <option>Mountains</option>
-          <option>Forest</option>
-          <option>River</option>
-          <option>Sea</option>
-          <option>City</option>
-        </select>
+    setRoleName("");
+    notify("Role assigned.");
+    await loadData();
+  }
 
-        <h3>Spawn Points</h3>
-        <textarea
-          rows={3}
-          value={spawnText}
-          onChange={e => setSpawnText(e.target.value)}
-          placeholder={"প্রতি লাইনে একটি Spawn Point লিখুন"}
-        />
+  async function removeRole(id) {
+    if (!window.confirm("এই Role সরাতে চান?")) return;
 
-        <h3>Loot Areas</h3>
-        <textarea
-          rows={3}
-          value={lootText}
-          onChange={e => setLootText(e.target.value)}
-          placeholder={"প্রতি লাইনে একটি Loot Area লিখুন"}
-        />
+    const { error } = await db
+      .from("player_roles")
+      .delete()
+      .eq("id", id);
 
-        <h3>Safe Zone</h3>
+    if (error) notify(error.message);
+    else {
+      notify("Role removed.");
+      await loadData();
+    }
+  }
 
-        <div className="map-form-grid">
-          <div>
-            <label>X Position</label>
+  async function createOrder(event) {
+    event.preventDefault();
+
+    const selectedPlan = PLANS.find((p) => p.id === planId);
+
+    if (!orderPlayer || !selectedPlan) {
+      notify("Player এবং Plan নির্বাচন করুন।");
+      return;
+    }
+
+    const { error } = await db.from("reward_orders").insert([{
+      player_id: orderPlayer,
+      plan_id: selectedPlan.id,
+      amount: selectedPlan.total,
+      status: "pending"
+    }]);
+
+    if (error) {
+      notify(error.message);
+      return;
+    }
+
+    notify("Reward order created.");
+    await loadData();
+  }
+
+  async function reviewOrder(order, approved) {
+    const status = approved ? "approved" : "rejected";
+
+    const { error } = await db
+      .from("reward_orders")
+      .update({ status })
+      .eq("id", order.id);
+
+    if (error) {
+      notify(error.message);
+      return;
+    }
+
+    if (approved) {
+      const { error: distributionError } = await db
+        .from("diamond_distributions")
+        .insert([{
+          player_id: order.player_id,
+          amount: order.amount,
+          status: "pending"
+        }]);
+
+      if (distributionError) {
+        notify(
+          "Order approved, but distribution failed: " +
+          distributionError.message
+        );
+        await loadData();
+        return;
+      }
+    }
+
+    notify(approved ? "Order approved." : "Order rejected.");
+    await loadData();
+    }function dashboard() {
+    return (
+      <div
+        className="page-content dashboard-photo-page"
+        style={dashboardImage ? {
+          backgroundImage:
+            `linear-gradient(#06132699, #061326d9), url("${dashboardImage}")`
+        } : undefined}
+      >
+        <section className="dashboard-partner-hero">
+          <label className="dashboard-photo-upload">
+            <Plus size={16} />
+            {dashboardImage ? "Change Photo" : "Add Photo"}
             <input
-              type="number"
-              min="0"
-              max="100"
-              value={config.safe_zone.x}
-              onChange={e => updateConfig("safe_zone", {
-                ...config.safe_zone,
-                x: Number(e.target.value)
-              })}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleDashboardImage}
             />
-          </div>
+          </label>
 
-          <div>
-            <label>Y Position</label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              value={config.safe_zone.y}
-              onChange={e => updateConfig("safe_zone", {
-                ...config.safe_zone,
-                y: Number(e.target.value)
-              })}
-            />
-          </div>
-        </div>
-
-        <label>Safe Zone Size</label>
-        <input
-          type="range"
-          min="5"
-          max="100"
-          value={config.safe_zone.size}
-          onChange={e => updateConfig("safe_zone", {
-            ...config.safe_zone,
-            size: Number(e.target.value)
-          })}
-        />
-        <p>{config.safe_zone.size}%</p>
-
-        <h3>Airdrop Points</h3>
-        <textarea
-          rows={3}
-          value={airdropText}
-          onChange={e => setAirdropText(e.target.value)}
-          placeholder={"প্রতি লাইনে একটি Airdrop Point লিখুন"}
-        />
-
-        <h3>Map Preview</h3>
-
-        <div className="map-preview">
-          <div className="map-preview-land">
-            <div
-              className="map-safe-zone"
-              style={{
-                left: `${config.safe_zone.x}%`,
-                top: `${config.safe_zone.y}%`,
-                width: `${config.safe_zone.size}%`,
-                height: `${config.safe_zone.size}%`
-              }}
-            />
-            <div className="map-preview-label">
-              {draft.map_name || "Your Map"}
+          {!dashboardImage && (
+            <div className="dashboard-photo-placeholder">
+              <Users size={42} />
+              <strong>Your Photo Will Appear Here</strong>
+              <small>Choose a photo from your device</small>
             </div>
-            <span className="map-preview-terrain">
-              {config.terrain}
-            </span>
+          )}
+
+          <h1>My Life Partner</h1>
+        </section>
+
+        <div className="welcome">
+          <div>
+            <h1>Game Dashboard</h1>
+            <p>BD GAME Admin Control Center</p>
           </div>
+          <Gamepad2 size={38} />
         </div>
 
-        <div className="map-form-actions">
-          <button type="submit" disabled={saving}>
-            <Save size={17} />
-            {saving ? "Saving..." : editingId ? "Update Map" : "Save Map"}
-          </button>
+        <div className="stats">
+          <Stat title="Players" value={players.length} icon={Users} />
+          <Stat title="Roles" value={roles.length} icon={Crown} />
+          <Stat title="Reward Orders" value={orders.length} icon={Gem} />
+          <Stat title="Distributions" value={history.length} icon={Send} />
+        </div>
 
-          <button type="button" onClick={resetForm}>
-            Cancel / Reset
+        <div className="tiles">
+          {MODULES.map(([name, Icon]) => (
+            <button
+              key={name}
+              className="tile"
+              onClick={() => setPage(name)}
+            >
+              <Icon size={25} />
+              <span>{name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function playerPage() {
+    const filteredPlayers = players.filter((p) =>
+      JSON.stringify(p).toLowerCase().includes(query.toLowerCase())
+    );
+
+    return (
+      <div className="page-content">
+        <h1>Player Management</h1>
+
+        <div className="panel">
+          <h3>Player App Connection</h3>
+          <p>API Status: {playerApiStatus}</p>
+          <button onClick={refreshPlayerApp}>
+            <RefreshCw size={16} /> Refresh Player List
           </button>
         </div>
-      </form>
 
-      <div className="panel">
-        <h2>Saved Maps ({maps.length})</h2>
+        <div className="panel">
+          <h3>Add Player</h3>
+          <form onSubmit={addPlayer} className="form-grid">
+            <input
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Player name"
+            />
+            <input
+              value={playerUid}
+              onChange={(e) => setPlayerUid(e.target.value)}
+              placeholder="Player UID"
+            />
+            <button type="submit">
+              <Plus size={16} /> Add Player
+            </button>
+          </form>
+        </div>
 
-        {loading ? (
-          <p>Loading Maps...</p>
-        ) : maps.length === 0 ? (
-          <p>No maps created yet.</p>
-        ) : (
-          <div className="map-record-grid">
-            {maps.map(item => (
-              <div className="map-record" key={item.id}>
-                <MapPin size={25} />
-                <h3>{item.map_name}</h3>
-                <p>{item.map_description}</p>
-                <small>
-                  {item.map_type} · {item.map_size}
-                </small>
-                <p>Status: {item.status}</p>
+        <div className="panel">
+          <h3>Search Players</h3>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search player..."
+          />
 
-                <div className="map-form-actions">
-                  <button onClick={() => editMap(item)}>
-                    <Edit3 size={15} /> Edit
+          <DataTable
+            columns={["Player", "UID", "Created"]}
+            rows={filteredPlayers.map((p) => [
+              p.player_name || p.name || "—",
+              p.player_uid || p.uid || "—",
+              p.created_at
+                ? new Date(p.created_at).toLocaleDateString()
+                : "—"
+            ])}
+          />
+        </div>
+
+        <div className="panel">
+          <h3>Player App Records</h3>
+          <DataTable
+            columns={["Player", "UID", "Status"]}
+            rows={appwritePlayers.map((p) => [
+              p.name || p.player_name || "—",
+              p.uid || p.player_uid || "—",
+              p.status || "Active"
+            ])}
+          />
+        </div>
+
+        <div className="panel">
+          <h3>Assign Player Role</h3>
+          <form onSubmit={assignRole} className="form-grid">
+            <select
+              value={orderPlayer}
+              onChange={(e) => setOrderPlayer(e.target.value)}
+            >
+              <option value="">Select player</option>
+              {players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.player_name || p.player_uid}
+                </option>
+              ))}
+            </select>
+
+            <input
+              value={roleName}
+              onChange={(e) => setRoleName(e.target.value)}
+              placeholder="Role name"
+            />
+
+            <button type="submit">Assign Role</button>
+          </form>
+
+          <DataTable
+            columns={["Player ID", "Role", "Action"]}
+            rows={roles.map((r) => [
+              r.player_id,
+              r.role_name,
+              <button key={r.id} onClick={() => removeRole(r.id)}>
+                Remove
+              </button>
+            ])}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  function rewardPage() {
+    return (
+      <div className="page-content">
+        <h1>Diamond & Coin Management</h1>
+
+        <div className="stats-grid">
+          {PLANS.map((plan) => (
+            <div className="panel" key={plan.id}>
+              <h3>{plan.label}</h3>
+              <h2>{plan.total} Diamonds</h2>
+              <p>Instant: {plan.instant}</p>
+              <p>Deferred: {plan.deferred}</p>
+              <p>Duration: {plan.days} days</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="panel">
+          <h3>Create Reward Order</h3>
+
+          <form onSubmit={createOrder} className="form-grid">
+            <select
+              value={orderPlayer}
+              onChange={(e) => setOrderPlayer(e.target.value)}
+            >
+              <option value="">Select player</option>
+              {players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.player_name || p.player_uid}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={planId}
+              onChange={(e) => setPlanId(e.target.value)}
+            >
+              {PLANS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} - {p.total} Diamonds
+                </option>
+              ))}
+            </select>
+
+            <button type="submit">Create Order</button>
+          </form>
+        </div>
+
+        <div className="panel">
+          <h3>Reward Orders</h3>
+
+          <DataTable
+            columns={["Player", "Amount", "Status", "Actions"]}
+            rows={orders.map((o) => [
+              o.player_id,
+              o.amount,
+              o.status,
+              o.status === "pending" ? (
+                <div className="action-row" key={o.id}>
+                  <button onClick={() => reviewOrder(o, true)}>
+                    Approve
                   </button>
-
-                  <button onClick={() => publishMap(item)}>
-                    <Upload size={15} /> Publish
-                  </button>
-
-                  <button onClick={() => deleteMap(item.id)}>
-                    <Trash2 size={15} /> Delete
+                  <button onClick={() => reviewOrder(o, false)}>
+                    Reject
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ) : o.status
+            ])}
+          />
+        </div>
+
+        <div className="panel">
+          <h3>Diamond Distribution History</h3>
+          <DataTable
+            columns={["Player", "Amount", "Status", "Date"]}
+            rows={history.map((h) => [
+              h.player_id,
+              h.amount,
+              h.status,
+              h.created_at
+                ? new Date(h.created_at).toLocaleString()
+                : "—"
+            ])}
+          />
+        </div>
       </div>
+    );
+  }
+
+  function moduleManagerPage() {
+    const table = MODULE_TABLES[page];
+
+    if (!table) {
+      return (
+        <div className="page-content">
+          <h1>{page}</h1>
+          <div className="panel">
+            <p>এই মডিউলের জন্য আলাদা ব্যবস্থাপনা UI এখনো তৈরি করা হয়নি।</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="page-content">
+        <div className="page-heading">
+          <div>
+            <h1>{page}</h1>
+            <p>Database: {table}</p>
+          </div>
+
+          <button onClick={() => loadModuleRows(page)}>
+            <RefreshCw size={16} /> Refresh
+          </button>
+        </div>
+
+        <div className="panel">
+          <h3>{moduleEditingId ? "Edit Record" : "Add New Record"}</h3>
+
+          <form onSubmit={saveModuleItem}>
+            <label>Name</label>
+            <input
+              value={moduleDraft.name || ""}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  name: e.target.value
+                })
+              }
+              placeholder="Enter name"
+            />
+
+            <label>Description</label>
+            <textarea
+              value={moduleDraft.description || ""}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  description: e.target.value
+                })
+              }
+              placeholder="Enter description"
+              rows={4}
+            />
+
+            <label>Image URL</label>
+            <input
+              value={moduleDraft.image_url || ""}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  image_url: e.target.value
+                })
+              }
+              placeholder="Image URL"
+            />
+
+            <label>Status</label>
+            <select
+              value={moduleDraft.status || "active"}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  status: e.target.value
+                })
+              }
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+
+            <div className="action-row">
+              <button type="submit" disabled={moduleLoading}>
+                {moduleLoading ? "Saving..." : "Save"}
+              </button>
+
+              {moduleEditingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModuleEditingId(null);
+                    setModuleDraft({
+                      name: "",
+                      description: "",
+                      image_url: "",
+                      status: "active"
+                    });
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        <div className="panel">
+          <div className="page-heading">
+            <h3>Saved Records ({moduleRows.length})</h3>
+            {moduleLoading && <LoaderCircle className="spin" />}
+          </div>
+
+          {moduleRows.length === 0 ? (
+            <p>No records found.</p>
+          ) : (
+            <div className="record-grid">
+              {moduleRows.map((item) => (
+                <div className="record-card" key={item.id}>
+                  {item.image_url && (
+                    <img
+                      src={item.image_url}
+                      alt={item.name || "Record"}
+                    />
+                  )}
+
+                  <h3>{item.name || item.title || item.id}</h3>
+                  <p>{item.description || item.details || ""}</p>
+                  <small>Status: {item.status || "—"}</small>
+
+                  <div className="action-row">
+                    <button onClick={() => editModuleItem(item)}>
+                      Edit
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={() => deleteModuleItem(item.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function content() {
+    if (page === "Game Dashboard") return dashboard();
+
+    if (page === "Player Management") return playerPage();
+
+    if (page === "Map Management") {
+      return (
+        <MapManagement
+          db={db}
+          onBack={() => setPage("Game Dashboard")}
+        />
+      );
+    }
+
+    if (
+      page === "Diamond & Coin Management" ||
+      page === "Diamond Send Management"
+    ) {
+      return rewardPage();
+    }
+
+    if (
+      page === "AI System" ||
+      page === "Game Settings Management"
+    ) {
+      return (
+        <div className="page-content">
+          <h1>{page}</h1>
+          <MasterControl />
+        </div>
+      );
+    }
+
+    return moduleManagerPage();
+}if (busy) {
+    return (
+      <div className="loading-screen">
+        <LoaderCircle className="spin" size={38} />
+        <p>Loading BD GAME Admin...</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="login-logo">
+            <Gamepad2 size={42} />
+          </div>
+
+          <h1>BD GAME ADMIN</h1>
+          <p>Admin Control Center</p>
+
+          <form onSubmit={login}>
+            <label>Admin Gmail</label>
+            <input
+              type="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              placeholder="Enter admin Gmail"
+              required
+            />
+
+            <label>Password</label>
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              placeholder="Enter password"
+              required
+            />
+
+            <button type="submit" disabled={busy}>
+              Login to Admin
+            </button>
+          </form>
+
+          <button className="text-button" onClick={resetPassword}>
+            Forgot Password?
+          </button>
+
+          {notice && <div className="notice">{notice}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-layout">
+      <aside className={`sidebar ${mobile ? "show" : ""}`}>
+        <div className="sidebar-brand">
+          <Gamepad2 size={30} />
+          <div>
+            <strong>BD GAME</strong>
+            <small>ADMIN PANEL</small>
+          </div>
+
+          <button
+            className="close-sidebar"
+            onClick={() => setMobile(false)}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <nav>
+          {MODULES.map(([name, Icon]) => (
+            <button
+              key={name}
+              className={page === name ? "nav-active" : ""}
+              onClick={() => {
+                setPage(name);
+                setMobile(false);
+              }}
+            >
+              <Icon size={19} />
+              <span>{name}</span>
+            </button>
+          ))}
+        </nav>
+
+        <button className="logout-button" onClick={logout}>
+          <LogOut size={18} />
+          Logout
+        </button>
+      </aside>
+
+      <main className="main-area">
+        <header className="topbar">
+          <button
+            className="menu-button"
+            onClick={() => setMobile(!mobile)}
+          >
+            <Menu size={23} />
+          </button>
+
+          <div>
+            <strong>{page}</strong>
+            <small>BD GAME Administration</small>
+          </div>
+
+          <div className="admin-status">
+            <span className="online-dot" />
+            Admin Online
+          </div>
+        </header>
+
+        {content()}
+      </main>
+
+      {notice && <div className="toast">{notice}</div>}
     </div>
   );
 }
+
+function Stat({ title, value, icon: Icon }) {
+  return (
+    <div className="stat-card">
+      <div>
+        <small>{title}</small>
+        <h2>{value}</h2>
+      </div>
+      <Icon size={28} />
+    </div>
+  );
+}
+
+function DataTable({ columns = [], rows = [] }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            {columns.map((column, index) => (
+              <th key={index}>{column}</th>
+            ))}
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length}>No data available</td>
+            </tr>
+          ) : (
+            rows.map((row, index) => (
+              <tr key={index}>
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex}>{cell}</td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")).render(<App />);
