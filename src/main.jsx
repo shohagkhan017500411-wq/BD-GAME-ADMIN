@@ -162,7 +162,7 @@ function App() {
     }
 
     if (file.size > 2 * 1024 * 1024) {
-      notify("Image must be under 2 MB.");
+      notify("Image must be under 50 MB.");
       return;
     }
 
