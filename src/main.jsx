@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
@@ -482,9 +481,7 @@ function App() {
       window.clearTimeout(timeoutId);
       setAppwriteLoading(false);
     }
-  }
-
-  function refreshPlayerApp() {
+  }function refreshPlayerApp() {
     if (!session?.access_token) {
       setAppwriteStatus(
         "Admin login পাওয়া যায়নি। আবার Login করুন।"
@@ -1032,84 +1029,84 @@ function App() {
                 : "—"
             ])}
           />
-        </div>
 
-        <div className="panel">
-          <h3>Moderator / Vice Management</h3>
+          <div className="panel">
+            <h3>Moderator / Vice Management</h3>
 
-          <form className="inline-form" onSubmit={assignRole}>
-            <select
-              value={selectedPlayer}
-              onChange={e => setSelectedPlayer(e.target.value)}
-              required
-            >
-              <option value="">Player নির্বাচন করুন</option>
-              {players.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.player_name} · {p.player_id}
-                </option>
+            <form className="inline-form" onSubmit={assignRole}>
+              <select
+                value={selectedPlayer}
+                onChange={e => setSelectedPlayer(e.target.value)}
+                required
+              >
+                <option value="">Player নির্বাচন করুন</option>
+                {players.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.player_name} · {p.player_id}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={roleName}
+                onChange={e => setRoleName(e.target.value)}
+              >
+                <option value="moderator">Moderator</option>
+                <option value="vice">Vice</option>
+              </select>
+
+              <button className="primary">
+                <Plus /> Assign Role
+              </button>
+            </form>
+
+            <div className="order-list">
+              {roles.map(r => (
+                <div className="order" key={r.id}>
+                  <div>
+                    <b>
+                      {r.game_players?.player_name || "Player"} ·
+                      {" "}{r.game_players?.player_id || ""}
+                    </b>
+                    <p>
+                      <span className={`role ${r.role_name}`}>
+                        {r.role_name === "vice" ? "VICE" : "MODERATOR"}
+                      </span>
+                    </p>
+                  </div>
+
+                  <div className="actions">
+                    <button className="reject" onClick={() => removeRole(r)}>
+                      <Ban /> Remove Role
+                    </button>
+                  </div>
+                </div>
               ))}
-            </select>
 
-            <select
-              value={roleName}
-              onChange={e => setRoleName(e.target.value)}
-            >
-              <option value="moderator">Moderator</option>
-              <option value="vice">Vice</option>
-            </select>
-
-            <button className="primary">
-              <Plus /> Assign Role
-            </button>
-          </form>
-
-          <div className="order-list">
-            {roles.map(r => (
-              <div className="order" key={r.id}>
-                <div>
-                  <b>
-                    {r.game_players?.player_name || "Player"} ·
-                    {" "}{r.game_players?.player_id || ""}
-                  </b>
-                  <p>
-                    <span className={`role ${r.role_name}`}>
-                      {r.role_name === "vice" ? "VICE" : "MODERATOR"}
-                    </span>
-                  </p>
-                </div>
-
-                <div className="actions">
-                  <button className="reject" onClick={() => removeRole(r)}>
-                    <Ban /> Remove Role
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {!roles.length && (
-              <p className="muted">কোনো Role দেওয়া হয়নি।</p>
-            )}
+              {!roles.length && (
+                <p className="muted">কোনো Role দেওয়া হয়নি।</p>
+              )}
+            </div>
           </div>
-        </div>
 
-        <div className="panel">
-          <h3>Player Role History</h3>
-          <DataTable
-            headers={["Player", "Player ID", "Action", "Role", "Date"]}
-            rows={roleHistory.map(h => {
-              const player = getPlayer(h.player_id);
-              return [
-                player?.player_name || "Player",
-                player?.player_id || h.player_id,
-                h.action || "-",
-                h.role_name || "V Badge",
-                h.created_at
-                  ? new Date(h.created_at).toLocaleString()
-                  : "—"
-              ];
-            })}
-          />
+          <div className="panel">
+            <h3>Player Role History</h3>
+            <DataTable
+              headers={["Player", "Player ID", "Action", "Role", "Date"]}
+              rows={roleHistory.map(h => {
+                const player = getPlayer(h.player_id);
+                return [
+                  player?.player_name || "Player",
+                  player?.player_id || h.player_id,
+                  h.action || "-",
+                  h.role_name || "V Badge",
+                  h.created_at
+                    ? new Date(h.created_at).toLocaleString()
+                    : "—"
+                ];
+              })}
+            />
+          </div>
         </div>
       </>
     );
@@ -1270,7 +1267,10 @@ function App() {
 
   let content;
 
-  if (page === "AI System") {
+  if (
+    page === "AI System" ||
+    page === "Game Settings Management"
+  ) {
     content = <MasterControl />;
   } else if (page === "Game Dashboard") {
     content = dashboard();
