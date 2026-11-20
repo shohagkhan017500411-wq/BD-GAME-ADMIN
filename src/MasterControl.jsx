@@ -1,690 +1,475 @@
 
 import React, { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import {
-  LayoutDashboard, Route, MousePointer2, Palette,
-  Gamepad2, Sparkles, Save, Eye, Plus, Trash2,
-  ShieldCheck, Bot, Bell, History, Users,
-  MessageCircle, Shield, WandSparkles, Settings,
-  ChevronRight, Cloud, LoaderCircle
-} from "lucide-react";
 
-const URL = import.meta.env.VITE_SUPABASE_URL;
-const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-const db = URL && KEY
-  ? createClient(URL, KEY, {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-        flowType: "pkce"
-      }
-    })
-  : null;
+const SUPABASE_URL = "https://kvloogdidadztnpgcvqu.supabase.co";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const OWNER_ID = "abae9dc5-08d4-4f34-8cbb-c350f9e5736f";
 
-const tools = [
-  { name: "Entry Control", icon: LayoutDashboard },
-  { name: "Routing Control", icon: Route },
-  { name: "Button & UI Builder", icon: MousePointer2 },
-  { name: "Visual Editor", icon: Palette },
-  { name: "Game Mode Control", icon: Gamepad2 },
-  { name: "AI System", icon: Sparkles }
-];
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false
+  }
+});
 
-const modes = [
-  "Solo", "Duo", "Squad", "Battle Royale",
-  "Clash Squad", "Ranked", "Classic",
-  "Custom Room", "Training", "Tournament"
-];
-
-const aiServices = [
-  { name: "AI Game Assistant", detail: "গেম পরিচালনা ও সাধারণ সহায়তা" },
-  { name: "AI Player Support", detail: "Player-এর প্রশ্ন ও সহায়তা" },
-  { name: "AI Report Analysis", detail: "Player report বিশ্লেষণ" },
-  { name: "AI Security Monitor", detail: "নিরাপত্তা সংক্রান্ত সতর্কতা" },
-  { name: "AI Game Suggestions", detail: "গেম উন্নয়নের পরামর্শ" },
-  { name: "AI Event Creator", detail: "নতুন Event-এর খসড়া তৈরি" },
-  { name: "AI Notification Writer", detail: "Notification-এর লেখা তৈরি" },
-  { name: "AI Admin Assistant", detail: "Admin কাজের সহায়তা" },
-  { name: "AI Activity History", detail: "AI কার্যক্রমের খসড়া ইতিহাস" }
-];
-
-const defaultDraft = {
-  startPage: "Splash",
-  loginDestination: "Lobby",
-  enabledModes: ["Solo", "Duo", "Squad"],
-  buttons: [
-    { id: 1, text: "Play", page: "Lobby" },
-    { id: 2, text: "Character", page: "Character" },
-    { id: 3, text: "Shop", page: "Shop" }
-  ],
-  aiEnabled: false,
-  aiApproval: true,
-  services: aiServices.map(item => ({
-    name: item.name,
-    enabled: false
-  }))
+const defaultSettings = {
+  entry: {
+    startPage: "Login",
+    splash: true,
+    login: true,
+    afterLogin: "Lobby"
+  },
+  routing: {
+    home: "Lobby",
+    shop: "Shop",
+    profile: "Profile"
+  },
+  buttons: [],
+  visual: {
+    theme: "Blue Yellow",
+    background: "Island",
+    animations: true
+  },
+  gameMode: {
+    solo: true,
+    duo: true,
+    squad: true,
+    custom: true
+  },
+  ai: {
+    enabled: true,
+    assistant: false
+  }
 };
 
-function getLocalDraft() {
-  try {
-    const saved = localStorage.getItem("bd_game_master_draft");
-    return saved
-      ? { ...defaultDraft, ...JSON.parse(saved) }
-      : defaultDraft;
-  } catch {
-    return defaultDraft;
+const modules = [
+  {
+    id: "entry",
+    name: "Entry Control",
+    description: "Game start page control"
+  },
+  {
+    id: "routing",
+    name: "Routing Control",
+    description: "Game page navigation settings"
+  },
+  {
+    id: "buttons",
+    name: "Button & UI Builder",
+    description: "Button and interface settings"
+  },
+  {
+    id: "visual",
+    name: "Visual Editor",
+    description: "Game appearance settings"
+  },
+  {
+    id: "gameMode",
+    name: "Game Mode Control",
+    description: "Game mode settings"
+  },
+  {
+    id: "ai",
+    name: "AI System",
+    description: "AI configuration settings"
   }
-}
+];
 
 export default function MasterControl() {
-  const [active, setActive] = useState("Entry Control");
-  const [draft, setDraft] = useState(getLocalDraft);
-  const [saved, setSaved] = useState(false);
-  const [preview, setPreview] = useState(false);
-
+  const [draft, setDraft] = useState(defaultSettings);
+  const [active, setActive] = useState("entry");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [cloudStatus, setCloudStatus] = useState(
-    "Supabase সংযোগ পরীক্ষা হচ্ছে..."
-  );
+  const [cloudStatus, setCloudStatus] = useState("Checking cloud connection...");
+  const [error, setError] = useState("");
 
-  const [ownerSession, setOwnerSession] = useState(null);
-
-  // Admin যাচাই এবং Cloud Settings লোড
   useEffect(() => {
     let mounted = true;
 
-    async function loadCloudSettings() {
-      if (!db) {
-        if (mounted) {
-          setCloudStatus("Supabase configuration পাওয়া যায়নি।");
-          setLoading(false);
-        }
-        return;
-      }
-
+    async function loadSettings() {
       try {
         const { data: sessionData, error: sessionError } =
           await db.auth.getSession();
 
         if (sessionError) throw sessionError;
 
-        const currentSession = sessionData.session;
+        const session = sessionData?.session;
 
-        if (!currentSession) {
-          throw new Error("Admin login session পাওয়া যায়নি।");
+        if (!session || session.user.id !== OWNER_ID) {
+          throw new Error("Owner Admin session পাওয়া যায়নি। আবার Admin Login করুন।");
         }
 
-        if (currentSession.user.id !== OWNER_ID) {
-          throw new Error("এই অ্যাকাউন্টটি Owner Admin নয়।");
-        }
-
-        const { data: isAdmin, error: adminError } =
+        const { data: adminCheck, error: adminError } =
           await db.rpc("is_admin");
 
-        if (adminError || isAdmin !== true) {
-          throw new Error("Admin অনুমতি যাচাই করা যায়নি।");
+        if (adminError) throw adminError;
+        if (adminCheck !== true) {
+          throw new Error("Admin অনুমতি যাচাই করা যায়নি।");
         }
 
-        if (!mounted) return;
-
-        setOwnerSession(currentSession);
-
-        const { data, error } = await db
+        const { data, error: readError } = await db
           .from("game_admin_settings")
-          .select("settings, updated_at")
+          .select("settings")
           .eq("id", "global")
           .maybeSingle();
 
-        if (error) throw error;
+        if (readError) throw readError;
+
+        if (!mounted) return;
 
         if (data?.settings) {
-          const cloudDraft = {
-            ...defaultDraft,
+          setDraft({
+            ...defaultSettings,
             ...data.settings
-          };
-
-          setDraft(cloudDraft);
-
-          try {
-            localStorage.setItem(
-              "bd_game_master_draft",
-              JSON.stringify(cloudDraft)
-            );
-          } catch {}
+          });
         }
 
-        setCloudStatus(
-          data
-            ? "Cloud Connected · Settings লোড হয়েছে"
-            : "Cloud Connected · নতুন Settings তৈরি করা যাবে"
-        );
+        setCloudStatus("Cloud Connected");
       } catch (err) {
         if (mounted) {
-          setCloudStatus(
-            "Cloud Error: " + (err.message || "সংযোগ ব্যর্থ")
-          );
+          setCloudStatus("Cloud Not Connected");
+          setError(err.message || "Cloud settings load failed");
         }
       } finally {
         if (mounted) setLoading(false);
       }
     }
 
-    loadCloudSettings();
+    loadSettings();
 
     return () => {
       mounted = false;
     };
   }, []);
 
-  function update(key, value) {
-    setDraft(old => ({ ...old, [key]: value }));
-    setSaved(false);
+  function updateSection(section, key, value) {
+    setDraft(previous => ({
+      ...previous,
+      [section]: {
+        ...previous[section],
+        [key]: value
+      }
+    }));
   }
 
-  // Local + Supabase Cloud Save
   async function saveDraft() {
-    if (saving) return;
-
     setSaving(true);
-    setSaved(false);
+    setError("");
 
     try {
-      if (!db) {
-        throw new Error("Supabase configuration পাওয়া যায়নি।");
-      }
-
       const { data: sessionData, error: sessionError } =
         await db.auth.getSession();
 
       if (sessionError) throw sessionError;
 
-      const currentSession = sessionData.session;
+      const session = sessionData?.session;
 
-      if (!currentSession) {
-        throw new Error("Admin login session পাওয়া যায়নি।");
+      if (!session || session.user.id !== OWNER_ID) {
+        throw new Error("Owner Admin session পাওয়া যায়নি।");
       }
 
-      if (currentSession.user.id !== OWNER_ID) {
-        throw new Error("শুধু Owner Admin Settings Save করতে পারবেন।");
-      }
-
-      const { data: isAdmin, error: adminError } =
+      const { data: adminCheck, error: adminError } =
         await db.rpc("is_admin");
 
-      if (adminError || isAdmin !== true) {
-        throw new Error("Admin অনুমতি যাচাই করা যায়নি।");
+      if (adminError) throw adminError;
+      if (adminCheck !== true) {
+        throw new Error("Admin permission নেই।");
       }
 
       const { error: saveError } = await db
         .from("game_admin_settings")
-        .upsert({
-          id: "global",
-          settings: draft,
-          updated_by: currentSession.user.id,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: "id"
-        });
+        .upsert(
+          {
+            id: "global",
+            settings: draft,
+            updated_by: session.user.id,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: "id" }
+        );
 
       if (saveError) throw saveError;
 
-      try {
-        localStorage.setItem(
-          "bd_game_master_draft",
-          JSON.stringify(draft)
-        );
-      } catch {}
+      localStorage.setItem(
+        "bd_game_master_draft",
+        JSON.stringify(draft)
+      );
 
-      setOwnerSession(currentSession);
-      setSaved(true);
-      setCloudStatus("Cloud Saved · Supabase-এ Settings সংরক্ষিত হয়েছে");
+      setCloudStatus("Cloud Saved");
+      alert("Cloud Save সফল হয়েছে!");
     } catch (err) {
-      setCloudStatus(
-        "Save Error: " + (err.message || "সংরক্ষণ করা যায়নি")
-      );
-
-      alert(
-        "Settings Save করা যায়নি:\n" +
-        (err.message || "অজানা সমস্যা")
-      );
+      setCloudStatus("Cloud Save Failed");
+      setError(err.message || "Save failed");
+      alert("Cloud Save হয়নি: " + (err.message || "Unknown error"));
     } finally {
       setSaving(false);
     }
   }
 
-  function addButton() {
-    update("buttons", [
-      ...draft.buttons,
-      {
-        id: Date.now(),
-        text: "New Button",
-        page: "Lobby"
-      }
-    ]);
+  function renderModule() {
+    switch (active) {
+      case "entry":
+        return (
+          <>
+            <h2>Entry Control System</h2>
+            <p>Select which page will be displayed first when the game starts.</p>
+
+            <label>Game Start Page</label>
+            <select
+              value={draft.entry.startPage}
+              onChange={e =>
+                updateSection("entry", "startPage", e.target.value)
+              }
+            >
+              {["Splash", "Entry", "Login", "After Login", "Lobby", "Character", "Maps", "Profile"].map(item => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+
+            <label>After Login Page</label>
+            <select
+              value={draft.entry.afterLogin}
+              onChange={e =>
+                updateSection("entry", "afterLogin", e.target.value)
+              }
+            >
+              {["Lobby", "Character", "Maps", "Profile"].map(item => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+
+            <p>Preview: Entry → {draft.entry.startPage} → {draft.entry.afterLogin}</p>
+          </>
+        );
+
+      case "routing":
+        return (
+          <>
+            <h2>Routing Control</h2>
+            {Object.entries(draft.routing).map(([key, value]) => (
+              <label key={key}>
+                {key.toUpperCase()}
+                <input
+                  value={value}
+                  onChange={e =>
+                    updateSection("routing", key, e.target.value)
+                  }
+                />
+              </label>
+            ))}
+          </>
+        );
+
+      case "buttons":
+        return (
+          <>
+            <h2>Button & UI Builder</h2>
+            <p>Manage the button labels displayed in your configuration.</p>
+            <textarea
+              rows="6"
+              value={draft.buttons.join("\n")}
+              onChange={e =>
+                setDraft(previous => ({
+                  ...previous,
+                  buttons: e.target.value.split("\n")
+                }))
+              }
+              placeholder={"Shop\nCharacter\nProfile"}
+            />
+          </>
+        );
+
+      case "visual":
+        return (
+          <>
+            <h2>Visual Editor</h2>
+
+            <label>Theme</label>
+            <select
+              value={draft.visual.theme}
+              onChange={e =>
+                updateSection("visual", "theme", e.target.value)
+              }
+            >
+              <option>Blue Yellow</option>
+              <option>Dark</option>
+              <option>Light</option>
+            </select>
+
+            <label>Background</label>
+            <select
+              value={draft.visual.background}
+              onChange={e =>
+                updateSection("visual", "background", e.target.value)
+              }
+            >
+              <option>Island</option>
+              <option>Forest</option>
+              <option>City</option>
+            </select>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.visual.animations}
+                onChange={e =>
+                  updateSection("visual", "animations", e.target.checked)
+                }
+              />
+              Enable Animations
+            </label>
+          </>
+        );
+
+      case "gameMode":
+        return (
+          <>
+            <h2>Game Mode Control</h2>
+            {Object.entries(draft.gameMode).map(([key, value]) => (
+              <label key={key}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(value)}
+                  onChange={e =>
+                    updateSection("gameMode", key, e.target.checked)
+                  }
+                />
+                {key.toUpperCase()}
+              </label>
+            ))}
+          </>
+        );
+
+      case "ai":
+        return (
+          <>
+            <h2>AI System</h2>
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.ai.enabled}
+                onChange={e =>
+                  updateSection("ai", "enabled", e.target.checked)
+                }
+              />
+              Enable AI System
+            </label>
+
+            <label>
+              <input
+                type="checkbox"
+                checked={draft.ai.assistant}
+                onChange={e =>
+                  updateSection("ai", "assistant", e.target.checked)
+                }
+              />
+              Enable AI Assistant
+            </label>
+          </>
+        );
+
+      default:
+        return <p>Select a control module.</p>;
+    }
   }
-
-  function updateButton(id, key, value) {
-    update(
-      "buttons",
-      draft.buttons.map(button =>
-        button.id === id
-          ? { ...button, [key]: value }
-          : button
-      )
-    );
-  }
-
-  function removeButton(id) {
-    update(
-      "buttons",
-      draft.buttons.filter(button => button.id !== id)
-    );
-  }
-
-  function toggleMode(mode) {
-    const enabled = draft.enabledModes.includes(mode);
-
-    update(
-      "enabledModes",
-      enabled
-        ? draft.enabledModes.filter(item => item !== mode)
-        : [...draft.enabledModes, mode]
-    );
-  }
-
-  function toggleService(name) {
-    update(
-      "services",
-      draft.services.map(service =>
-        service.name === name
-          ? { ...service, enabled: !service.enabled }
-          : service
-      )
-    );
-  }
-
-  const activeTool = tools.find(tool => tool.name === active);
 
   return (
     <div className="master-control">
-      <header className="master-header">
-        <div>
-          <span className="master-kicker">
-            BD GAME ADMINISTRATION
-          </span>
-          <h1>MASTER CONTROL</h1>
-          <p>Game configuration workspace</p>
-        </div>
+      <style>{`
+        .master-control {
+          color: #eaf1ff;
+          background: #101a30;
+          padding: 18px;
+          border-radius: 14px;
+          font-family: Arial, sans-serif;
+        }
+        .master-control h1 { color: #ffd447; }
+        .master-control h2 { color: #70b9ff; }
+        .master-control button,
+        .master-control select,
+        .master-control input:not([type="checkbox"]),
+        .master-control textarea {
+          padding: 11px;
+          margin: 7px 0;
+          border-radius: 8px;
+          border: 1px solid #496080;
+          background: #172844;
+          color: white;
+          max-width: 100%;
+        }
+        .master-control label {
+          display: block;
+          margin: 12px 0;
+        }
+        .master-control button {
+          cursor: pointer;
+          background: #1766c2;
+          border: 0;
+          font-weight: bold;
+        }
+        .master-control button:disabled {
+          opacity: .5;
+          cursor: not-allowed;
+        }
+        .master-control .tabs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 7px;
+          margin: 16px 0;
+        }
+        .master-control .tabs button {
+          background: #263b5d;
+        }
+        .master-control .tabs button.active {
+          background: #d7a900;
+          color: #101a30;
+        }
+        .master-control .status {
+          padding: 10px;
+          background: #1d304c;
+          border-radius: 8px;
+          margin: 12px 0;
+        }
+        .master-control .error { color: #ffaaaa; }
+      `}</style>
 
-        <div className="master-header-icon">
-          <ShieldCheck size={34} />
-        </div>
-      </header>
+      <h1>MASTER CONTROL</h1>
+      <p>Game configuration workspace</p>
 
-      <div className="master-notice">
-        <Shield size={19} />
-        <div>
-          <b>Cloud Draft Control</b>
-          <p>
-            Settings এখন Supabase Cloud-এ সংরক্ষণ করা যাবে।
-            তবে Player Game-এ live পরিবর্তন পাঠাতে আলাদা
-            Game integration প্রয়োজন।
-          </p>
-        </div>
+      <div className="status">
+        <strong>{cloudStatus}</strong>
+        {loading && <p>Loading cloud settings...</p>}
       </div>
 
-      <div className="master-cloud-status">
-        <Cloud size={18} />
-        <span>{cloudStatus}</span>
-      </div>
+      {error && <p className="error">{error}</p>}
 
-      <div className="master-tool-grid">
-        {tools.map(({ name, icon: Icon }) => (
+      <div className="tabs">
+        {modules.map(module => (
           <button
-            key={name}
-            className={`master-tool ${active === name ? "active" : ""}`}
-            onClick={() => setActive(name)}
+            key={module.id}
+            className={active === module.id ? "active" : ""}
+            onClick={() => setActive(module.id)}
           >
-            <Icon size={21} />
-            <span>{name}</span>
-            <ChevronRight size={16} />
+            {module.name}
           </button>
         ))}
       </div>
 
-      <main className="master-main">
-        <div className="master-section-heading">
-          <div>
-            <span className="master-kicker">CONTROL MODULE</span>
-            <h2>{activeTool?.name || active}</h2>
-          </div>
-          {activeTool && <activeTool.icon size={28} />}
-        </div>
+      <div className="control-content">
+        {renderModule()}
+      </div>
 
-        {loading && (
-          <div className="master-info">
-            <LoaderCircle size={18} />
-            <span>Cloud Settings লোড হচ্ছে...</span>
-          </div>
-        )}
+      <button onClick={saveDraft} disabled={loading || saving}>
+        {saving ? "Saving..." : "Save to Cloud"}
+      </button>
 
-        {active === "Entry Control" && (
-          <section className="master-panel">
-            <h3>Entry Control System</h3>
-            <p>
-              গেম চালু হলে কোন পেজ আগে দেখাবে তা নির্বাচন করুন।
-            </p>
-
-            <label>Game Start Page</label>
-            <select
-              value={draft.startPage}
-              onChange={e => update("startPage", e.target.value)}
-            >
-              {["Splash", "Entry", "Login"].map(page => (
-                <option key={page} value={page}>{page}</option>
-              ))}
-            </select>
-
-            <label>After Login</label>
-            <select
-              value={draft.loginDestination}
-              onChange={e =>
-                update("loginDestination", e.target.value)
-              }
-            >
-              {["Lobby", "Character", "Maps", "Profile"].map(page => (
-                <option key={page} value={page}>{page}</option>
-              ))}
-            </select>
-
-            <div className="master-info">
-              <Eye size={18} />
-              <span>
-                Preview: {draft.startPage} → Login → {draft.loginDestination}
-              </span>
-            </div>
-          </section>
-        )}
-
-        {active === "Routing Control" && (
-          <section className="master-panel">
-            <h3>Routing Control</h3>
-            <p>প্রস্তাবিত navigation route-এর খসড়া।</p>
-
-            <div className="route-row">
-              <span>Game Start</span>
-              <b>{draft.startPage}</b>
-            </div>
-
-            <div className="route-row">
-              <span>Login Success</span>
-              <b>{draft.loginDestination}</b>
-            </div>
-
-            <div className="route-row">
-              <span>Available Buttons</span>
-              <b>{draft.buttons.length}</b>
-            </div>
-
-            <p className="muted">
-              Live routing চালু করতে Player Game-এর routing code-এ
-              এই settings সংযোগ করতে হবে।
-            </p>
-          </section>
-        )}
-
-        {active === "Button & UI Builder" && (
-          <section className="master-panel">
-            <h3>Button & UI Builder</h3>
-            <p>
-              নিজের পছন্দমতো Button-এর নাম ও destination নির্ধারণ করুন।
-            </p>
-
-            {draft.buttons.map(button => (
-              <div className="master-button-row" key={button.id}>
-                <input
-                  value={button.text}
-                  onChange={e =>
-                    updateButton(button.id, "text", e.target.value)
-                  }
-                  placeholder="Button name"
-                  aria-label="Button name"
-                />
-
-                <select
-                  value={button.page}
-                  onChange={e =>
-                    updateButton(button.id, "page", e.target.value)
-                  }
-                >
-                  {[
-                    "Lobby", "Character", "Maps",
-                    "Profile", "Shop", "Settings"
-                  ].map(page => (
-                    <option key={page} value={page}>{page}</option>
-                  ))}
-                </select>
-
-                <button
-                  className="master-delete"
-                  onClick={() => removeButton(button.id)}
-                  title="Remove button"
-                >
-                  <Trash2 size={17} />
-                </button>
-              </div>
-            ))}
-
-            <button className="master-action" onClick={addButton}>
-              <Plus size={18} /> Add New Button
-            </button>
-          </section>
-        )}
-
-        {active === "Visual Editor" && (
-          <section className="master-panel">
-            <div className="master-panel-title">
-              <div>
-                <h3>Visual Editor Preview</h3>
-                <p>তোমার Button layout-এর preview দেখো।</p>
-              </div>
-
-              <button
-                className="master-action secondary"
-                onClick={() => setPreview(!preview)}
-              >
-                <Eye size={17} />
-                {preview ? "Hide Preview" : "Show Preview"}
-              </button>
-            </div>
-
-            {preview && (
-              <div className="game-preview">
-                <div className="game-preview-logo">BD GAME</div>
-                <div className="game-preview-subtitle">
-                  BATTLE ARENA
-                </div>
-
-                <div className="game-preview-buttons">
-                  {draft.buttons.map(button => (
-                    <button key={button.id}>
-                      {button.text}
-                    </button>
-                  ))}
-                </div>
-
-                <small>DESIGN PREVIEW ONLY</small>
-              </div>
-            )}
-
-            {!preview && (
-              <div className="master-empty">
-                <Palette size={30} />
-                <span>
-                  Show Preview চাপলে Button Preview দেখা যাবে।
-                </span>
-              </div>
-            )}
-          </section>
-        )}
-
-        {active === "Game Mode Control" && (
-          <section className="master-panel">
-            <h3>Game Mode Control</h3>
-            <p>
-              যেসব Game Mode রাখতে চাও সেগুলো নির্বাচন করো।
-            </p>
-
-            <div className="master-mode-grid">
-              {modes.map(mode => (
-                <label className="master-check" key={mode}>
-                  <input
-                    type="checkbox"
-                    checked={draft.enabledModes.includes(mode)}
-                    onChange={() => toggleMode(mode)}
-                  />
-                  <span>{mode}</span>
-                </label>
-              ))}
-            </div>
-
-            <div className="master-info">
-              <Gamepad2 size={18} />
-              <span>
-                নির্বাচিত Mode: {draft.enabledModes.length}
-              </span>
-            </div>
-          </section>
-        )}
-
-        {active === "AI System" && (
-          <section className="master-panel">
-            <div className="ai-title">
-              <div className="ai-icon">
-                <Bot size={28} />
-              </div>
-              <div>
-                <h3>BD GAME AI SYSTEM</h3>
-                <p>AI assistant configuration</p>
-              </div>
-            </div>
-
-            <label className="master-check master-check-large">
-              <input
-                type="checkbox"
-                checked={draft.aiEnabled}
-                onChange={e =>
-                  update("aiEnabled", e.target.checked)
-                }
-              />
-              <span>
-                <b>Enable AI System</b>
-                <small>
-                  AI feature configuration চালু রাখুন
-                </small>
-              </span>
-            </label>
-
-            <label className="master-check master-check-large">
-              <input
-                type="checkbox"
-                checked={draft.aiApproval}
-                onChange={e =>
-                  update("aiApproval", e.target.checked)
-                }
-              />
-              <span>
-                <b>Require Admin Approval</b>
-                <small>
-                  AI-এর প্রস্তাব কার্যকর করার আগে Admin অনুমোদন লাগবে
-                </small>
-              </span>
-            </label>
-
-            <h3 className="ai-services-title">AI Services</h3>
-
-            <div className="ai-service-list">
-              {aiServices.map(service => {
-                const current = draft.services.find(
-                  item => item.name === service.name
-                );
-
-                return (
-                  <div className="ai-service" key={service.name}>
-                    <div className="ai-service-icon">
-                      {service.name.includes("Player")
-                        ? <Users size={19} />
-                        : service.name.includes("Report") ||
-                          service.name.includes("Security")
-                          ? <ShieldCheck size={19} />
-                          : service.name.includes("Notification")
-                            ? <Bell size={19} />
-                            : service.name.includes("Activity")
-                              ? <History size={19} />
-                              : service.name.includes("Support")
-                                ? <MessageCircle size={19} />
-                                : <WandSparkles size={19} />}
-                    </div>
-
-                    <div className="ai-service-copy">
-                      <b>{service.name}</b>
-                      <small>{service.detail}</small>
-                    </div>
-
-                    <label className="switch">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(current?.enabled)}
-                        onChange={() => toggleService(service.name)}
-                      />
-                      <span />
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="master-warning">
-              AI service চালাতে নিরাপদ server-side AI connection,
-              permissions এবং database integration লাগবে।
-              এই checkbox-গুলো এখন preference সংরক্ষণ করে।
-            </div>
-          </section>
-        )}
-
-        <div className="master-footer">
-          <button
-            className="master-action save-button"
-            onClick={saveDraft}
-            disabled={saving || loading}
-          >
-            {saving
-              ? <LoaderCircle className="spin" size={18} />
-              : <Save size={18} />}
-            {saving ? "Saving..." : "Save Draft"}
-          </button>
-
-          <span className={saved ? "saved-label" : "unsaved-label"}>
-            {saved
-              ? "Cloud-এ Settings সংরক্ষিত হয়েছে।"
-              : "পরিবর্তন এখনো Cloud-এ সংরক্ষণ করা হয়নি।"}
-          </span>
-        </div>
-
-        <div className="master-bottom-note">
-          <Cloud size={16} />
-          <span>
-            Save Draft চাপলে Settings Supabase Cloud এবং এই
-            Browser-এ সংরক্ষণ করা হবে। Player Game-এ live update
-            চালু করতে Player App integration এখনো প্রয়োজন।
-          </span>
-        </div>
-      </main>
+      <p>
+        Settings are stored in the Admin database.
+        Player Game live integration is a separate step.
+      </p>
     </div>
   );
 }
