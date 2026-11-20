@@ -56,6 +56,26 @@ const MODULES = [
   ["AI System", Sparkles]
 ];
 
+const MODULE_TABLES = {
+  "Character Management": "game_characters",
+  "Outfit & Skin Management": "game_outfits",
+  "Weapon Control": "game_weapons",
+  "Map Management": "game_maps",
+  "Game Mode Management": "game_modes",
+  "Room & Match Management": "game_rooms",
+  "Game Shop Management": "game_shop_items",
+  "Event & Mission Management": "game_events",
+  "Rank & Leaderboard Management": "game_rank_settings",
+  "Chat & Support Management": "game_support_tickets",
+  "Notification Management": "game_notifications",
+  "Intro & Lobby Management": "game_lobby_settings",
+  "Game Update Management": "game_updates",
+  "Security & Reports Management": "game_security_reports",
+  "Emote Management": "game_emotes",
+  "Animation Management": "game_animations",
+  "Diamond Send Management": "game_diamond_transfers"
+};
+
 const PLANS = [
   {
     id: "weekly",
@@ -82,1282 +102,954 @@ const PLANS = [
     days: 30,
     daily: 50
   }
-];
-
-function App() {
+];function App() {
   const [session, setSession] = useState(null);
   const [busy, setBusy] = useState(true);
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
-  const [forgotMode, setForgotMode] = useState(false);
-  const [resetMode, setResetMode] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   const [page, setPage] = useState("Game Dashboard");
   const [mobile, setMobile] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [query, setQuery] = useState("");
 
   const [players, setPlayers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [orders, setOrders] = useState([]);
   const [history, setHistory] = useState([]);
   const [roleHistory, setRoleHistory] = useState([]);
-
   const [appwritePlayers, setAppwritePlayers] = useState([]);
-  const [appwriteTotal, setAppwriteTotal] = useState(0);
-  const [appwriteStatus, setAppwriteStatus] = useState(
-    "এখনো সংযোগ পরীক্ষা হয়নি"
-  );
-  const [appwriteLoading, setAppwriteLoading] = useState(false);
+  const [playerApiStatus, setPlayerApiStatus] = useState("Checking...");
 
-  const [query, setQuery] = useState("");
-  const [newPlayerId, setNewPlayerId] = useState("");
-  const [newPlayerName, setNewPlayerName] = useState("");
-  const [selectedPlayer, setSelectedPlayer] = useState("");
-  const [roleName, setRoleName] = useState("moderator");
+  const [playerName, setPlayerName] = useState("");
+  const [playerUid, setPlayerUid] = useState("");
+  const [roleName, setRoleName] = useState("");
   const [planId, setPlanId] = useState("weekly");
   const [orderPlayer, setOrderPlayer] = useState("");
-  const [notice, setNotice] = useState("");
+  const [orderAmount, setOrderAmount] = useState("");
 
-  function notify(message) {
+  const [moduleRows, setModuleRows] = useState([]);
+  const [moduleDraft, setModuleDraft] = useState({
+    name: "",
+    description: "",
+    image_url: "",
+    status: "active"
+  });
+  const [moduleEditingId, setModuleEditingId] = useState(null);
+  const [moduleLoading, setModuleLoading] = useState(false);
+
+  const notify = (message) => {
     setNotice(message);
-    window.setTimeout(() => setNotice(""), 3500);
-  }
+    setTimeout(() => setNotice(""), 3500);
+  };
 
-  async function verifyAdmin(userSession) {
-    if (!userSession || userSession.user.id !== OWNER_ID) {
-      await db?.auth.signOut();
-      setSession(null);
-      setError("এই অ্যাকাউন্টটি নির্ধারিত Admin ID নয়।");
-      setBusy(false);
-      return;
-    }
-
-    const { data, error: rpcError } = await db.rpc("is_admin");
-
-    if (rpcError || data !== true) {
-      await db.auth.signOut();
-      setSession(null);
-      setError("Admin অনুমতি যাচাই করা যায়নি।");
-    } else {
-      setSession(userSession);
-      setError("");
-    }
-
-    setBusy(false);
-  }
-
-  // AUTH এবং PASSWORD RECOVERY
   useEffect(() => {
     if (!db) {
       setBusy(false);
       return;
     }
 
-    let mounted = true;
-
-    const { data: listener } = db.auth.onAuthStateChange(
-      (event, currentSession) => {
-        if (!mounted) return;
-
-        if (event === "PASSWORD_RECOVERY" && currentSession) {
-          setResetMode(true);
-          setForgotMode(false);
-          setError("");
-          setMessage("নতুন পাসওয়ার্ড সেট করুন।");
-          setBusy(false);
-        }
-
-        if (event === "SIGNED_OUT") {
-          setSession(null);
-          setBusy(false);
-        }
-      }
-    );
-
-    async function checkSession() {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get("code");
-
-        // PKCE recovery code exchange
-        if (code) {
-          const { data, error } =
-            await db.auth.exchangeCodeForSession(code);
-
-          if (error) throw error;
-
-          if (data.session) {
-            if (!mounted) return;
-
-            setResetMode(true);
-            setForgotMode(false);
-            setError("");
-            setMessage("নতুন পাসওয়ার্ড সেট করুন।");
-
-            window.history.replaceState(
-              {},
-              document.title,
-              window.location.pathname
-            );
-
-            setBusy(false);
-            return;
-          }
-        }
-
-        // Hash token recovery support
-        const hashParams = new URLSearchParams(
-          window.location.hash.replace(/^#/, "")
-        );
-
-        const accessToken = hashParams.get("access_token");
-        const refreshToken = hashParams.get("refresh_token");
-        const isRecovery = hashParams.get("type") === "recovery";
-
-        if (accessToken && refreshToken && isRecovery) {
-          const { data, error } = await db.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          });
-
-          if (error) throw error;
-
-          if (data.session) {
-            if (!mounted) return;
-
-            setResetMode(true);
-            setForgotMode(false);
-            setError("");
-            setMessage("নতুন পাসওয়ার্ড সেট করুন।");
-
-            window.history.replaceState(
-              {},
-              document.title,
-              window.location.pathname
-            );
-
-            setBusy(false);
-            return;
-          }
-        }
-
-        // Existing session check
-        const { data, error } = await db.auth.getSession();
-
-        if (!mounted) return;
-        if (error) throw error;
-
-        if (data.session) {
-          const recoveryUrl =
-            /type=recovery/i.test(
-              window.location.search + window.location.hash
-            );
-
-          if (recoveryUrl) {
-            setResetMode(true);
-            setForgotMode(false);
-            setMessage("নতুন পাসওয়ার্ড সেট করুন।");
-            setBusy(false);
-            return;
-          }
-
-          await verifyAdmin(data.session);
+    const checkSession = async () => {
+      const { data } = await db.auth.getSession();
+      if (data?.session) {
+        const allowed = await verifyAdmin(data.session);
+        if (allowed) {
+          setSession(data.session);
+          await loadData();
         } else {
-          setBusy(false);
-
-          if (params.has("code") || isRecovery) {
-            setError(
-              "রিসেট লিংকের সেশন তৈরি হয়নি। নতুন Reset Link নিতে হবে।"
-            );
-          }
+          await db.auth.signOut();
         }
-      } catch (err) {
-        if (!mounted) return;
-
-        setError(
-          err?.message || "Recovery session তৈরি করা যায়নি।"
-        );
-        setBusy(false);
       }
-    }
+      setBusy(false);
+    };
 
     checkSession();
 
-    return () => {
-      mounted = false;
-      listener.subscription.unsubscribe();
-    };
-  }, []);
-
-  // ADMIN LOGIN
-  async function login(e) {
-    e.preventDefault();
-
-    setBusy(true);
-    setError("");
-    setMessage("");
-
-    if (!db) {
-      setError("Supabase configuration পাওয়া যায়নি।");
-      setBusy(false);
-      return;
-    }
-
-    const { data, error: loginError } =
-      await db.auth.signInWithPassword({
-        email: email.trim(),
-        password
-      });
-
-    if (loginError) {
-      setError("Login ব্যর্থ। ইমেইল ও পাসওয়ার্ড যাচাই করুন।");
-      setBusy(false);
-      return;
-    }
-
-    await verifyAdmin(data.session);
-  }
-
-  // FORGOT PASSWORD
-  async function sendRecovery(e) {
-    e.preventDefault();
-
-    setBusy(true);
-    setError("");
-    setMessage("");
-
-    if (!db) {
-      setError("Supabase configuration পাওয়া যায়নি।");
-      setBusy(false);
-      return;
-    }
-
-    const { error: recoveryError } =
-      await db.auth.resetPasswordForEmail(
-        email.trim(),
-        {
-          redirectTo:
-            "https://bd-game-admin.shohagkhan017500411.workers.dev"
-        }
-      );
-
-    if (recoveryError) {
-      setError(recoveryError.message);
-    } else {
-      setMessage(
-        "রিসেট লিংক পাঠানো হয়েছে। Gmail চেক করুন।"
-      );
-    }
-
-    setBusy(false);
-  }
-
-  // UPDATE NEW PASSWORD
-  async function updatePassword(e) {
-    e.preventDefault();
-
-    setError("");
-    setMessage("");
-
-    if (!db) {
-      setError("Supabase configuration পাওয়া যায়নি।");
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      setError("পাসওয়ার্ড কমপক্ষে ৮ অক্ষরের হতে হবে।");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setError("দুটি পাসওয়ার্ড মিলছে না।");
-      return;
-    }
-
-    setBusy(true);
-
-    try {
-      const { data: sessionData, error: sessionError } =
-        await db.auth.getSession();
-
-      if (sessionError) throw sessionError;
-
-      if (!sessionData.session) {
-        setError(
-          "Recovery session পাওয়া যায়নি। Gmail-এর নতুন Reset Link ব্যবহার করুন।"
-        );
-        setBusy(false);
-        return;
-      }
-
-      const { error: updateError } =
-        await db.auth.updateUser({
-          password: newPassword
-        });
-
-      if (updateError) throw updateError;
-
-      await db.auth.signOut();
-
-      setSession(null);
-      setPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setResetMode(false);
-      setForgotMode(false);
-      setMessage("নতুন পাসওয়ার্ড সেট হয়েছে। এখন Login করুন।");
-    } catch (err) {
-      setError(err?.message || "পাসওয়ার্ড আপডেট করা যায়নি।");
-    }
-
-    setBusy(false);
-  }
-
-  // PLAYER APP API
-  async function loadAppwritePlayers(currentSession = session) {
-    if (!currentSession?.access_token) {
-      setAppwriteLoading(false);
-      setAppwriteStatus("Admin login পাওয়া যায়নি।");
-      return;
-    }
-
-    setAppwriteLoading(true);
-    setAppwriteStatus("Player App-এর সঙ্গে সংযোগ করা হচ্ছে...");
-
-    const controller = new AbortController();
-
-    const timeoutId = window.setTimeout(
-      () => controller.abort(),
-      15000
-    );
-
-    try {
-      const response = await fetch(PLAYER_API, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${currentSession.access_token}`,
-          Accept: "application/json"
-        },
-        signal: controller.signal,
-        cache: "no-store"
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || result.ok !== true) {
-        setAppwritePlayers([]);
-        setAppwriteTotal(0);
-        setAppwriteStatus(
-          result.error || `API Error: ${response.status}`
-        );
-        return;
-      }
-
-      const list = Array.isArray(result.players)
-        ? result.players
-        : [];
-
-      setAppwritePlayers(list);
-      setAppwriteTotal(Number(result.total ?? list.length));
-
-      setAppwriteStatus(
-        `সংযুক্ত · ${Number(result.total ?? list.length)} জন Player পাওয়া গেছে`
-      );
-    } catch (err) {
-      setAppwritePlayers([]);
-      setAppwriteTotal(0);
-
-      setAppwriteStatus(
-        err?.name === "AbortError"
-          ? "সময় শেষ: Player App ১৫ সেকেন্ডেও উত্তর দেয়নি।"
-          : "সংযোগ ব্যর্থ: " + (err.message || "Network error")
-      );
-    } finally {
-      window.clearTimeout(timeoutId);
-      setAppwriteLoading(false);
-    }
-  }function refreshPlayerApp() {
-    if (!session?.access_token) {
-      setAppwriteStatus(
-        "Admin login পাওয়া যায়নি। আবার Login করুন।"
-      );
-      return;
-    }
-
-    if (appwriteLoading) return;
-
-    setAppwriteLoading(true);
-    setAppwriteStatus("সংযোগ শুরু হচ্ছে...");
-
-    window.setTimeout(() => {
-      void loadAppwritePlayers(session);
-    }, 0);
-  }
-
-  async function loadData() {
-    if (!db || !session) return;
-
-    void loadAppwritePlayers(session);
-
-    const [p, r, o, h, rh] = await Promise.all([
-      db.from("game_players")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(300),
-
-      db.from("player_roles")
-        .select("*, game_players(player_id,player_name,avatar_url,v_badge)"),
-
-      db.from("reward_orders")
-        .select("*, game_players(player_id,player_name), reward_plans(reward_name,total_diamonds,instant_diamonds,deferred_diamonds,duration_days,daily_diamonds)")
-        .order("created_at", { ascending: false })
-        .limit(300),
-
-      db.from("diamond_distributions")
-        .select("*")
-        .order("distributed_at", { ascending: false })
-        .limit(300),
-
-      db.from("player_role_history")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(300)
-    ]);
-
-    if (p.error) notify(p.error.message);
-    else setPlayers(p.data || []);
-
-    if (r.error) notify(r.error.message);
-    else setRoles(r.data || []);
-
-    if (o.error) notify(o.error.message);
-    else setOrders(o.data || []);
-
-    if (h.error) notify(h.error.message);
-    else setHistory(h.data || []);
-
-    if (rh.error) notify(rh.error.message);
-    else setRoleHistory(rh.data || []);
-  }
-
-  useEffect(() => {
-    if (session) loadData();
-  }, [session]);
-
-  async function addPlayer(e) {
-    e.preventDefault();
-
-    const { error: insertError } = await db
-      .from("game_players")
-      .insert({
-        player_id: newPlayerId.trim(),
-        player_name: newPlayerName.trim()
-      });
-
-    if (insertError) return notify(insertError.message);
-
-    setNewPlayerId("");
-    setNewPlayerName("");
-    notify("Player যোগ হয়েছে।");
-    loadData();
-  }
-
-  async function assignRole(e) {
-    e.preventDefault();
-
-    if (!selectedPlayer) {
-      return notify("Player নির্বাচন করুন।");
-    }
-
-    const { error: roleError } = await db.rpc(
-      "admin_assign_player_role",
-      {
-        p_player_uuid: selectedPlayer,
-        p_role_name: roleName
-      }
-    );
-
-    if (roleError) return notify(roleError.message);
-
-    notify("Role সফলভাবে দেওয়া হয়েছে।");
-    loadData();
-  }
-
-  async function togglePlayerBadge(player) {
-    const { error: badgeError } = await db.rpc(
-      "admin_set_player_v_badge",
-      {
-        p_player_uuid: player.id,
-        p_enabled: !player.v_badge
-      }
-    );
-
-    if (badgeError) return notify(badgeError.message);
-
-    notify(
-      player.v_badge
-        ? "V Badge সরানো হয়েছে।"
-        : "V Badge দেওয়া হয়েছে।"
-    );
-
-    loadData();
-  }
-
-  async function removeRole(role) {
-    const { error: deleteError } = await db.rpc(
-      "admin_remove_player_role",
-      {
-        p_player_uuid: role.player_id,
-        p_role_name: role.role_name
-      }
-    );
-
-    if (deleteError) return notify(deleteError.message);
-
-    notify("Role সরানো হয়েছে।");
-    loadData();
-  }
-
-  async function createOrder(e) {
-    e.preventDefault();
-
-    if (!orderPlayer) {
-      return notify("Player নির্বাচন করুন।");
-    }
-
-    const { error: orderError } = await db
-      .from("reward_orders")
-      .insert({
-        player_id: orderPlayer,
-        plan_id: planId
-      });
-
-    if (orderError) return notify(orderError.message);
-
-    notify("Reward order তৈরি হয়েছে।");
-    loadData();
-  }
-
-  async function reviewOrder(order, status) {
-    const { error: updateError } = await db
-      .from("reward_orders")
-      .update({
-        status,
-        reviewed_by: session.user.id,
-        reviewed_at: new Date().toISOString()
-      })
-      .eq("id", order.id)
-      .eq("status", "pending");
-
-    if (updateError) return notify(updateError.message);
-
-    if (status === "approved") {
-      const amount =
-        order.reward_plans?.instant_diamonds || 0;
-
-      if (amount > 0) {
-        const { error: distributionError } = await db
-          .from("diamond_distributions")
-          .insert({
-            order_id: order.id,
-            player_id: order.player_id,
-            diamonds: amount,
-            distribution_type: "instant"
-          });
-
-        if (distributionError) {
-          notify(
-            "Distribution record হয়নি: " +
-            distributionError.message
-          );
-          loadData();
+    const { data: listener } = db.auth.onAuthStateChange(
+      async (_event, nextSession) => {
+        if (!nextSession) {
+          setSession(null);
           return;
         }
-      }
-    }
 
-    notify(
-      status === "approved"
-        ? "Order approve হয়েছে।"
-        : "Order reject হয়েছে।"
+        const allowed = await verifyAdmin(nextSession);
+        if (allowed) setSession(nextSession);
+      }
     );
 
-    loadData();
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  async function verifyAdmin(currentSession) {
+    if (!currentSession?.user) return false;
+
+    if (currentSession.user.id === OWNER_ID) return true;
+
+    const { data, error } = await db.rpc("is_admin");
+
+    if (error) {
+      console.error("Admin verification:", error);
+      return false;
+    }
+
+    return data === true;
+  }
+
+  async function login(event) {
+    event.preventDefault();
+
+    if (!db) {
+      notify("Supabase configuration is missing.");
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const { data, error } = await db.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword
+      });
+
+      if (error) throw error;
+
+      const allowed = await verifyAdmin(data.session);
+
+      if (!allowed) {
+        await db.auth.signOut();
+        throw new Error("এই অ্যাকাউন্টের Admin অনুমতি নেই।");
+      }
+
+      setSession(data.session);
+      await loadData();
+      notify("Admin login successful.");
+    } catch (error) {
+      notify(error.message || "Login failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetPassword() {
+    if (!loginEmail.trim()) {
+      notify("আগে Gmail লিখুন।");
+      return;
+    }
+
+    const { error } = await db.auth.resetPasswordForEmail(
+      loginEmail.trim(),
+      {
+        redirectTo: window.location.origin
+      }
+    );
+
+    if (error) notify(error.message);
+    else notify("Password reset email পাঠানো হয়েছে।");
   }
 
   async function logout() {
     await db.auth.signOut();
-
     setSession(null);
-    setAppwritePlayers([]);
-    setAppwriteTotal(0);
-    setAppwriteStatus("Admin logout হয়েছে।");
+    setPage("Game Dashboard");
+    notify("Logged out.");
   }
 
-  const filteredPlayers = useMemo(() => {
-    return players.filter(p =>
-      `${p.player_id || ""} ${p.player_name || ""}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
-    );
-  }, [players, query]);
+  async function loadData() {
+    if (!db) return;
 
-  const filteredAppwritePlayers = useMemo(() => {
-    return appwritePlayers.filter(p =>
-      `${p.display_name || ""} ${p.$id || ""} ${p.auth_user_id || ""}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
-    );
-  }, [appwritePlayers, query]);
+    const requests = await Promise.all([
+      db.from("game_players").select("*").order("created_at", {
+        ascending: false
+      }),
+      db.from("player_roles").select("*"),
+      db.from("reward_orders").select("*").order("created_at", {
+        ascending: false
+      }),
+      db.from("diamond_distributions").select("*").order("created_at", {
+        ascending: false
+      }),
+      db.from("player_role_history").select("*").order("created_at", {
+        ascending: false
+      })
+    ]);
 
-  function getPlayer(playerUuid) {
-    return players.find(p => p.id === playerUuid);
+    setPlayers(requests[0].data || []);
+    setRoles(requests[1].data || []);
+    setOrders(requests[2].data || []);
+    setHistory(requests[3].data || []);
+    setRoleHistory(requests[4].data || []);
+
+    await refreshPlayerApp();
   }
 
-  // NEW PASSWORD PAGE
-  if (resetMode) {
-    return (
-      <div className="login-wrap">
-        <form className="login-card" onSubmit={updatePassword}>
-          <div className="logo">
-            <ShieldCheck size={42} />
-          </div>
+  async function refreshPlayerApp() {
+    if (!session?.access_token) return;
 
-          <h1>NEW PASSWORD</h1>
-          <p>নতুন পাসওয়ার্ড সেট করুন</p>
+    try {
+      const response = await fetch(PLAYER_API, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        },
+        signal: AbortSignal.timeout(15000)
+      });
 
-          <label>New Password</label>
-          <input
-            type="password"
-            value={newPassword}
-            onChange={e => setNewPassword(e.target.value)}
-            placeholder="নতুন পাসওয়ার্ড"
-            minLength={8}
-            autoComplete="new-password"
-            required
-          />
+      if (!response.ok) {
+        setPlayerApiStatus("API unavailable");
+        return;
+      }
 
-          <label>Confirm Password</label>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            placeholder="আবার নতুন পাসওয়ার্ড লিখুন"
-            minLength={8}
-            autoComplete="new-password"
-            required
-          />
+      const result = await response.json();
 
-          {error && <div className="alert">{error}</div>}
-          {message && <div className="alert">{message}</div>}
+      setAppwritePlayers(
+        Array.isArray(result) ? result : result.players || []
+      );
 
-          <button className="primary" disabled={busy}>
-            {busy ? "Updating..." : "Update Password"}
-          </button>
-        </form>
-      </div>
-    );
+      setPlayerApiStatus("Connected");
+    } catch (error) {
+      console.error(error);
+      setPlayerApiStatus("Connection failed");
+    }
   }
 
-  if (busy) {
-    return (
-      <div className="center">
-        <LoaderCircle className="spin" />
-        যাচাই হচ্ছে...
-      </div>
-    );
+  async function loadModuleRows(moduleName = page) {
+    const table = MODULE_TABLES[moduleName];
+
+    if (!table) {
+      setModuleRows([]);
+      return;
+    }
+
+    setModuleLoading(true);
+
+    try {
+      const { data, error } = await db
+        .from(table)
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      setModuleRows(data || []);
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setModuleLoading(false);
+    }
   }
 
-  // LOGIN AND FORGOT PASSWORD PAGE
-  if (!session) {
-    return (
-      <div className="login-wrap">
-        <form
-          className="login-card"
-          onSubmit={forgotMode ? sendRecovery : login}
-        >
-          <div className="logo">
-            <Gamepad2 size={42} />
-          </div>
+  async function saveModuleItem(event) {
+    event.preventDefault();
 
-          <h1>BD GAME ADMIN</h1>
-          <p>
-            {forgotMode
-              ? "Reset Admin Password"
-              : "Secure Owner Login"}
-          </p>
+    const table = MODULE_TABLES[page];
 
-          {!db && (
-            <div className="alert">
-              Supabase configuration অনুপস্থিত।
-            </div>
-          )}
+    if (!table) return;
 
-          <label>Admin Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            placeholder="Admin Email"
-            autoComplete="email"
-            required
-          />
+    setModuleLoading(true);
 
-          {!forgotMode && (
-            <>
-              <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Admin Password"
-                autoComplete="current-password"
-                required
-              />
-            </>
-          )}
+    try {
+      let result;
 
-          {error && <div className="alert">{error}</div>}
-          {message && <div className="alert">{message}</div>}
+      if (moduleEditingId) {
+        result = await db
+          .from(table)
+          .update(moduleDraft)
+          .eq("id", moduleEditingId);
+      } else {
+        result = await db
+          .from(table)
+          .insert([moduleDraft]);
+      }
 
-          <button className="primary" disabled={!db || busy}>
-            {busy
-              ? "Please wait..."
-              : forgotMode
-                ? "Send Reset Link"
-                : "Login"}
-          </button>
+      if (result.error) throw result.error;
 
-          {forgotMode ? (
-            <button
-              type="button"
-              onClick={() => {
-                setForgotMode(false);
-                setError("");
-                setMessage("");
-              }}
-            >
-              Back to Login
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setForgotMode(true);
-                setError("");
-                setMessage("");
-              }}
-            >
-              Forgot Password?
-            </button>
-          )}
+      notify(moduleEditingId ? "Updated successfully." : "Added successfully.");
 
-          <small>
-            শুধু নির্ধারিত Admin প্রবেশ করতে পারবে।
-          </small>
-        </form>
-      </div>
-    );
+      setModuleDraft({
+        name: "",
+        description: "",
+        image_url: "",
+        status: "active"
+      });
+
+      setModuleEditingId(null);
+      await loadModuleRows(page);
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      setModuleLoading(false);
+    }
+  }
+
+  async function deleteModuleItem(id) {
+    if (!window.confirm("এই তথ্যটি মুছে ফেলতে চান?")) return;
+
+    const table = MODULE_TABLES[page];
+
+    try {
+      const { error } = await db
+        .from(table)
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+
+      notify("Deleted successfully.");
+      await loadModuleRows(page);
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+
+  function editModuleItem(item) {
+    setModuleEditingId(item.id);
+    setModuleDraft({
+      ...item
+    });
+  }
+
+  useEffect(() => {
+    if (session && MODULE_TABLES[page]) {
+      loadModuleRows(page);
+    }
+  }, [page, session]);async function addPlayer(event) {
+    event.preventDefault();
+
+    if (!playerName.trim() || !playerUid.trim()) {
+      notify("Player name এবং UID দিন।");
+      return;
+    }
+
+    const { error } = await db.from("game_players").insert([{
+      player_name: playerName.trim(),
+      player_uid: playerUid.trim()
+    }]);
+
+    if (error) {
+      notify(error.message);
+      return;
+    }
+
+    setPlayerName("");
+    setPlayerUid("");
+    notify("Player added.");
+    await loadData();
+  }
+
+  async function assignRole(event) {
+    event.preventDefault();
+
+    if (!orderPlayer || !roleName.trim()) {
+      notify("Player এবং Role নির্বাচন করুন।");
+      return;
+    }
+
+    const { error } = await db.from("player_roles").insert([{
+      player_id: orderPlayer,
+      role_name: roleName.trim()
+    }]);
+
+    if (error) {
+      notify(error.message);
+      return;
+    }
+
+    setRoleName("");
+    notify("Role assigned.");
+    await loadData();
+  }
+
+  async function removeRole(id) {
+    if (!window.confirm("এই Role সরাতে চান?")) return;
+
+    const { error } = await db
+      .from("player_roles")
+      .delete()
+      .eq("id", id);
+
+    if (error) notify(error.message);
+    else {
+      notify("Role removed.");
+      await loadData();
+    }
+  }
+
+  async function createOrder(event) {
+    event.preventDefault();
+
+    const selectedPlan = PLANS.find((p) => p.id === planId);
+
+    if (!orderPlayer || !selectedPlan) {
+      notify("Player এবং Plan নির্বাচন করুন।");
+      return;
+    }
+
+    const { error } = await db.from("reward_orders").insert([{
+      player_id: orderPlayer,
+      plan_id: selectedPlan.id,
+      amount: selectedPlan.total,
+      status: "pending"
+    }]);
+
+    if (error) {
+      notify(error.message);
+      return;
+    }
+
+    notify("Reward order created.");
+    await loadData();
+  }
+
+  async function reviewOrder(order, approved) {
+    const status = approved ? "approved" : "rejected";
+
+    const { error } = await db
+      .from("reward_orders")
+      .update({ status })
+      .eq("id", order.id);
+
+    if (error) {
+      notify(error.message);
+      return;
+    }
+
+    if (approved) {
+      const { error: distributionError } = await db
+        .from("diamond_distributions")
+        .insert([{
+          player_id: order.player_id,
+          amount: order.amount,
+          status: "pending"
+        }]);
+
+      if (distributionError) {
+        notify("Order approved, but distribution failed: " + distributionError.message);
+        await loadData();
+        return;
+      }
+    }
+
+    notify(approved ? "Order approved." : "Order rejected.");
+    await loadData();
   }
 
   function dashboard() {
     return (
-      <>
-        <div className="welcome">
-          <div>
-            <h1>Welcome to BD GAME ADMIN</h1>
-            <p>Game Management Control Center</p>
-          </div>
-          <Crown size={48} />
+      <div className="page-content">
+        <h1>Game Dashboard</h1>
+        <p>BD GAME Admin Control Center</p>
+
+        <div className="stats-grid">
+          <Stat title="Players" value={players.length} icon={Users} />
+          <Stat title="Roles" value={roles.length} icon={Crown} />
+          <Stat title="Reward Orders" value={orders.length} icon={Gem} />
+          <Stat title="Distributions" value={history.length} icon={Send} />
         </div>
 
-        <div className="stats">
-          <Stat icon={<Users />} label="Total Players" value={players.length} />
-          <Stat icon={<Shield />} label="Assigned Roles" value={roles.length} />
-          <Stat
-            icon={<Gem />}
-            label="Pending Orders"
-            value={orders.filter(o => o.status === "pending").length}
-          />
-          <Stat icon={<History />} label="Diamond Records" value={history.length} />
+        <div className="module-grid">
+          {MODULES.map(([name, Icon]) => (
+            <button
+              key={name}
+              className="module-card"
+              onClick={() => setPage(name)}
+            >
+              <Icon size={25} />
+              <span>{name}</span>
+            </button>
+          ))}
         </div>
-
-        <div className="panel">
-          <h3>২২টি Management Section</h3>
-          <div className="tiles">
-            {MODULES.map(([name, Icon]) => (
-              <button
-                className="tile"
-                key={name}
-                onClick={() => setPage(name)}
-              >
-                <Icon />
-                <span>{name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </>
+      </div>
     );
   }
 
   function playerPage() {
+    const filteredPlayers = players.filter((p) =>
+      JSON.stringify(p).toLowerCase().includes(query.toLowerCase())
+    );
+
     return (
-      <>
+      <div className="page-content">
+        <h1>Player Management</h1>
+
         <div className="panel">
-          <h3>BD GAME Player App · Live Players</h3>
+          <h3>Player App Connection</h3>
+          <p>API Status: {playerApiStatus}</p>
+          <button onClick={refreshPlayerApp}>
+            <RefreshCw size={16} /> Refresh Player List
+          </button>
+        </div>
 
-          <div className="stats">
-            <Stat icon={<Users />} label="Player App Total" value={appwriteTotal} />
-            <Stat icon={<Activity />} label="Loaded Players" value={appwritePlayers.length} />
-          </div>
-
-          <div className="order">
-            <div>
-              <b>Player App API Status</b>
-              <p className="muted">{appwriteStatus}</p>
-            </div>
-
-            <div className="actions">
-              <button
-                className="primary"
-                onClick={refreshPlayerApp}
-                disabled={appwriteLoading}
-              >
-                {appwriteLoading
-                  ? <LoaderCircle className="spin" />
-                  : <RefreshCw />}
-                {appwriteLoading ? "Loading..." : "Refresh Players"}
-              </button>
-            </div>
-          </div>
-
-          <div className="search">
-            <Search />
+        <div className="panel">
+          <h3>Add Player</h3>
+          <form onSubmit={addPlayer} className="form-grid">
             <input
-              placeholder="Player App-এর নাম বা ID খুঁজুন"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Player name"
             />
-          </div>
+            <input
+              value={playerUid}
+              onChange={(e) => setPlayerUid(e.target.value)}
+              placeholder="Player UID"
+            />
+            <button type="submit">
+              <Plus size={16} /> Add Player
+            </button>
+          </form>
+        </div>
+
+        <div className="panel">
+          <h3>Search Players</h3>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search player..."
+          />
 
           <DataTable
-            headers={[
-              "Player Name", "Player ID", "Level", "XP",
-              "Coins", "Diamonds", "Status", "Joined"
-            ]}
-            rows={filteredAppwritePlayers.map(p => [
-              p.display_name || "Player",
-              p.$id || p.auth_user_id || "—",
-              p.level ?? 1,
-              p.xp ?? 0,
-              p.coins ?? 0,
-              p.diamonds ?? 0,
-              p.status || "active",
+            columns={["Player", "UID", "Created"]}
+            rows={filteredPlayers.map((p) => [
+              p.player_name || p.name || "—",
+              p.player_uid || p.uid || "—",
               p.created_at
                 ? new Date(p.created_at).toLocaleDateString()
                 : "—"
             ])}
           />
-
-          {!appwriteLoading && appwritePlayers.length === 0 && (
-            <p className="muted">
-              Player App থেকে কোনো Player পাওয়া যায়নি অথবা API সংযোগে সমস্যা হয়েছে।
-              উপরের API Status দেখুন।
-            </p>
-          )}
         </div>
 
         <div className="panel">
-          <h3>Admin Records · Player Management</h3>
+          <h3>Player App Records</h3>
+          <DataTable
+            columns={["Player", "UID", "Status"]}
+            rows={appwritePlayers.map((p) => [
+              p.name || p.player_name || "—",
+              p.uid || p.player_uid || "—",
+              p.status || "Active"
+            ])}
+          />
+        </div>
 
-          <div className="search">
-            <Search />
-            <input
-              placeholder="Player ID বা নাম দিয়ে খুঁজুন"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-            />
-          </div>
+        <div className="panel">
+          <h3>Assign Player Role</h3>
+          <form onSubmit={assignRole} className="form-grid">
+            <select
+              value={orderPlayer}
+              onChange={(e) => setOrderPlayer(e.target.value)}
+            >
+              <option value="">Select player</option>
+              {players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.player_name || p.player_uid}
+                </option>
+              ))}
+            </select>
 
-          <form className="inline-form" onSubmit={addPlayer}>
             <input
-              placeholder="Player ID"
-              value={newPlayerId}
-              onChange={e => setNewPlayerId(e.target.value)}
-              required
+              value={roleName}
+              onChange={(e) => setRoleName(e.target.value)}
+              placeholder="Role name"
             />
-            <input
-              placeholder="Player Name"
-              value={newPlayerName}
-              onChange={e => setNewPlayerName(e.target.value)}
-              required
-            />
-            <button className="primary">
-              <Plus /> Add Player
-            </button>
+
+            <button type="submit">Assign Role</button>
           </form>
 
           <DataTable
-            headers={[
-              "Avatar", "Player ID", "Name",
-              "V Badge", "Status", "Created"
-            ]}
-            rows={filteredPlayers.map(p => [
-              p.avatar_url
-                ? <img className="player-avatar" src={p.avatar_url} alt="Player" />
-                : "—",
-              p.player_id,
-              <>
-                {p.player_name}
-                {p.v_badge && <span className="v-badge">V</span>}
-              </>,
-              <button
-                className={p.v_badge ? "approve" : "reject"}
-                onClick={() => togglePlayerBadge(p)}
-              >
-                {p.v_badge ? "Badge Off" : "Badge On"}
-              </button>,
-              p.status || "active",
-              p.created_at
-                ? new Date(p.created_at).toLocaleDateString()
-                : "—"
+            columns={["Player ID", "Role", "Action"]}
+            rows={roles.map((r) => [
+              r.player_id,
+              r.role_name,
+              <button key={r.id} onClick={() => removeRole(r.id)}>
+                Remove
+              </button>
             ])}
           />
-
-          <div className="panel">
-            <h3>Moderator / Vice Management</h3>
-
-            <form className="inline-form" onSubmit={assignRole}>
-              <select
-                value={selectedPlayer}
-                onChange={e => setSelectedPlayer(e.target.value)}
-                required
-              >
-                <option value="">Player নির্বাচন করুন</option>
-                {players.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.player_name} · {p.player_id}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={roleName}
-                onChange={e => setRoleName(e.target.value)}
-              >
-                <option value="moderator">Moderator</option>
-                <option value="vice">Vice</option>
-              </select>
-
-              <button className="primary">
-                <Plus /> Assign Role
-              </button>
-            </form>
-
-            <div className="order-list">
-              {roles.map(r => (
-                <div className="order" key={r.id}>
-                  <div>
-                    <b>
-                      {r.game_players?.player_name || "Player"} ·
-                      {" "}{r.game_players?.player_id || ""}
-                    </b>
-                    <p>
-                      <span className={`role ${r.role_name}`}>
-                        {r.role_name === "vice" ? "VICE" : "MODERATOR"}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="actions">
-                    <button className="reject" onClick={() => removeRole(r)}>
-                      <Ban /> Remove Role
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {!roles.length && (
-                <p className="muted">কোনো Role দেওয়া হয়নি।</p>
-              )}
-            </div>
-          </div>
-
-          <div className="panel">
-            <h3>Player Role History</h3>
-            <DataTable
-              headers={["Player", "Player ID", "Action", "Role", "Date"]}
-              rows={roleHistory.map(h => {
-                const player = getPlayer(h.player_id);
-                return [
-                  player?.player_name || "Player",
-                  player?.player_id || h.player_id,
-                  h.action || "-",
-                  h.role_name || "V Badge",
-                  h.created_at
-                    ? new Date(h.created_at).toLocaleString()
-                    : "—"
-                ];
-              })}
-            />
-          </div>
         </div>
-      </>
+      </div>
     );
   }
 
   function rewardPage() {
     return (
-      <>
+      <div className="page-content">
+        <h1>Diamond & Coin Management</h1>
+
+        <div className="stats-grid">
+          {PLANS.map((plan) => (
+            <div className="panel" key={plan.id}>
+              <h3>{plan.label}</h3>
+              <h2>{plan.total} Diamonds</h2>
+              <p>Instant: {plan.instant}</p>
+              <p>Deferred: {plan.deferred}</p>
+              <p>Duration: {plan.days} days</p>
+            </div>
+          ))}
+        </div>
+
         <div className="panel">
-          <h3>Diamond Reward Management</h3>
+          <h3>Create Reward Order</h3>
 
-          <p className="muted">
-            Reward order তৈরি ও পর্যালোচনা করুন।
-            বাস্তব গেমে Diamond পাঠাতে অনুমোদিত server API সংযোগ লাগবে।
-          </p>
-
-          <form className="inline-form" onSubmit={createOrder}>
+          <form onSubmit={createOrder} className="form-grid">
             <select
               value={orderPlayer}
-              onChange={e => setOrderPlayer(e.target.value)}
-              required
+              onChange={(e) => setOrderPlayer(e.target.value)}
             >
-              <option value="">Player নির্বাচন করুন</option>
-              {players.map(p => (
+              <option value="">Select player</option>
+              {players.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.player_name} · {p.player_id}
+                  {p.player_name || p.player_uid}
                 </option>
               ))}
             </select>
 
             <select
               value={planId}
-              onChange={e => setPlanId(e.target.value)}
+              onChange={(e) => setPlanId(e.target.value)}
             >
-              {PLANS.map(p => (
+              {PLANS.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label} · {p.total} Diamond
+                  {p.label} - {p.total} Diamonds
                 </option>
               ))}
             </select>
 
-            <button className="primary">
-              <Plus /> Create Order
-            </button>
+            <button type="submit">Create Order</button>
           </form>
+        </div>
 
-          <div className="plan-grid">
-            {PLANS.map(p => (
-              <div className="plan" key={p.id}>
-                <b>{p.label}</b>
-                <strong>{p.total} 💎</strong>
-                <span>সঙ্গে সঙ্গে: {p.instant}</span>
-                <span>বাকি: {p.deferred}</span>
-                <span>
-                  সময়: {p.days} দিন
-                  {p.daily ? ` · প্রতিদিন ${p.daily}` : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-
+        <div className="panel">
           <h3>Reward Orders</h3>
 
-          <div className="order-list">
-            {orders.map(o => (
-              <div className="order" key={o.id}>
-                <div>
-                  <b>
-                    {o.game_players?.player_name} ·
-                    {" "}{o.game_players?.player_id}
-                  </b>
-                  <p>
-                    {o.reward_plans?.reward_name} ·
-                    {" "}{o.reward_plans?.total_diamonds} Diamond
-                  </p>
-                  <span className={`status ${o.status}`}>
-                    {o.status}
-                  </span>
+          <DataTable
+            columns={["Player", "Amount", "Status", "Actions"]}
+            rows={orders.map((o) => [
+              o.player_id,
+              o.amount,
+              o.status,
+              o.status === "pending" ? (
+                <div className="action-row" key={o.id}>
+                  <button onClick={() => reviewOrder(o, true)}>
+                    Approve
+                  </button>
+                  <button onClick={() => reviewOrder(o, false)}>
+                    Reject
+                  </button>
                 </div>
-
-                {o.status === "pending" && (
-                  <div className="actions">
-                    <button
-                      className="approve"
-                      onClick={() => reviewOrder(o, "approved")}
-                    >
-                      <Check /> Approve
-                    </button>
-                    <button
-                      className="reject"
-                      onClick={() => reviewOrder(o, "rejected")}
-                    >
-                      <X /> Reject
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+              ) : o.status
+            ])}
+          />
         </div>
 
         <div className="panel">
           <h3>Diamond Distribution History</h3>
           <DataTable
-            headers={["Player ID", "Diamonds", "Type", "Date"]}
-            rows={history.map(h => [
+            columns={["Player", "Amount", "Status", "Date"]}
+            rows={history.map((h) => [
               h.player_id,
-              h.diamonds,
-              h.distribution_type,
-              h.distributed_at
-                ? new Date(h.distributed_at).toLocaleString()
+              h.amount,
+              h.status,
+              h.created_at
+                ? new Date(h.created_at).toLocaleString()
                 : "—"
             ])}
           />
         </div>
-      </>
+      </div>
     );
-  }
+    }function moduleManagerPage() {
+    const table = MODULE_TABLES[page];
 
-  function otherPage() {
-    if (page === "Security & Reports Management") {
+    if (!table) {
       return (
-        <div className="panel">
-          <h3>Security & Reports Management</h3>
-          <p>Owner ID: <code>{OWNER_ID}</code></p>
-          <p>Admin verification: Supabase Auth + is_admin() + RLS</p>
-          <p>Moderator ও Vice-কে Admin access দেওয়া হয়নি।</p>
-        </div>
-      );
-    }
-
-    if (
-      page === "Chat & Support Management" ||
-      page === "Notification Management"
-    ) {
-      return (
-        <div className="panel">
-          <h3>{page}</h3>
-          <p>এখানে Chat ও Notification-এর প্রাথমিক পেজ রাখা হয়েছে।</p>
-          <p className="muted">
-            Player App এবং message delivery backend সংযোগ না হওয়া পর্যন্ত
-            মেসেজ পাঠানো বা Notification পৌঁছানো চালু হবে না।
-          </p>
+        <div className="page-content">
+          <h1>{page}</h1>
+          <div className="panel">
+            <p>এই মডিউলের জন্য আলাদা ব্যবস্থাপনা UI এখনো তৈরি করা হয়নি।</p>
+          </div>
         </div>
       );
     }
 
     return (
-      <div className="panel">
-        <h3>{page}</h3>
-        <p>এই বিভাগের প্রাথমিক পেজ তৈরি হয়েছে।</p>
-        <p className="muted">
-          বাস্তব গেমের তথ্য ও API সংযোগের পর এই মডিউলের কাজ চালু হবে।
-        </p>
+      <div className="page-content">
+        <div className="page-heading">
+          <div>
+            <h1>{page}</h1>
+            <p>Database: {table}</p>
+          </div>
+
+          <button onClick={() => loadModuleRows(page)}>
+            <RefreshCw size={16} /> Refresh
+          </button>
+        </div>
+
+        <div className="panel">
+          <h3>{moduleEditingId ? "Edit Record" : "Add New Record"}</h3>
+
+          <form onSubmit={saveModuleItem}>
+            <label>Name</label>
+            <input
+              value={moduleDraft.name || ""}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  name: e.target.value
+                })
+              }
+              placeholder="Enter name"
+            />
+
+            <label>Description</label>
+            <textarea
+              value={moduleDraft.description || ""}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  description: e.target.value
+                })
+              }
+              placeholder="Enter description"
+              rows={4}
+            />
+
+            <label>Image URL</label>
+            <input
+              value={moduleDraft.image_url || ""}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  image_url: e.target.value
+                })
+              }
+              placeholder="https://example.com/image.png"
+            />
+
+            <label>Status</label>
+            <select
+              value={moduleDraft.status || "active"}
+              onChange={(e) =>
+                setModuleDraft({
+                  ...moduleDraft,
+                  status: e.target.value
+                })
+              }
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+
+            <div className="action-row">
+              <button type="submit" disabled={moduleLoading}>
+                {moduleLoading ? "Saving..." : "Save"}
+              </button>
+
+              {moduleEditingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModuleEditingId(null);
+                    setModuleDraft({
+                      name: "",
+                      description: "",
+                      image_url: "",
+                      status: "active"
+                    });
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+
+        <div className="panel">
+          <div className="page-heading">
+            <h3>Saved Records ({moduleRows.length})</h3>
+            {moduleLoading && <LoaderCircle className="spin" />}
+          </div>
+
+          {moduleRows.length === 0 ? (
+            <p>No records found.</p>
+          ) : (
+            <div className="record-grid">
+              {moduleRows.map((item) => (
+                <div className="record-card" key={item.id}>
+                  {item.image_url && (
+                    <img
+                      src={item.image_url}
+                      alt={item.name || "Record"}
+                    />
+                  )}
+
+                  <h3>{item.name || item.title || item.id}</h3>
+                  <p>{item.description || item.details || ""}</p>
+                  <small>Status: {item.status || "—"}</small>
+
+                  <div className="action-row">
+                    <button onClick={() => editModuleItem(item)}>
+                      Edit
+                    </button>
+
+                    <button
+                      className="danger"
+                      onClick={() => deleteModuleItem(item.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  let content;
+  function content() {
+    if (page === "Game Dashboard") return dashboard();
 
-  if (
-    page === "AI System" ||
-    page === "Game Settings Management"
-  ) {
-    content = <MasterControl />;
-  } else if (page === "Game Dashboard") {
-    content = dashboard();
-  } else if (page === "Player Management") {
-    content = playerPage();
-  } else if (
-    page === "Diamond & Coin Management" ||
-    page === "Diamond Send Management"
-  ) {
-    content = rewardPage();
-  } else {
-    content = otherPage();
+    if (page === "Player Management") return playerPage();
+
+    if (
+      page === "Diamond & Coin Management" ||
+      page === "Diamond Send Management"
+    ) {
+      return rewardPage();
+    }
+
+    if (
+      page === "AI System" ||
+      page === "Game Settings Management"
+    ) {
+      return (
+        <div className="page-content">
+          <h1>{page}</h1>
+          <MasterControl />
+        </div>
+      );
+    }
+
+    return moduleManagerPage();
+  }
+
+  if (busy) {
+    return (
+      <div className="loading-screen">
+        <LoaderCircle className="spin" size={38} />
+        <p>Loading BD GAME Admin...</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="login-logo">
+            <Gamepad2 size={42} />
+          </div>
+
+          <h1>BD GAME ADMIN</h1>
+          <p>Admin Control Center</p>
+
+          <form onSubmit={login}>
+            <label>Admin Gmail</label>
+            <input
+              type="email"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              placeholder="Enter admin Gmail"
+              required
+            />
+
+            <label>Password</label>
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
+              placeholder="Enter password"
+              required
+            />
+
+            <button type="submit" disabled={busy}>
+              Login to Admin
+            </button>
+          </form>
+
+          <button className="text-button" onClick={resetPassword}>
+            Forgot Password?
+          </button>
+
+          {notice && <div className="notice">{notice}</div>}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="layout">
-      <aside className={`sidebar ${mobile ? "open" : ""}`}>
-        <div className="brand">
-          <Gamepad2 />
+    <div className="admin-layout">
+      <aside className={`sidebar ${mobile ? "show" : ""}`}>
+        <div className="sidebar-brand">
+          <Gamepad2 size={30} />
           <div>
-            <b>BD GAME</b>
+            <strong>BD GAME</strong>
             <small>ADMIN PANEL</small>
           </div>
+
           <button
-            className="icon-btn mobile-close"
+            className="close-sidebar"
             onClick={() => setMobile(false)}
           >
-            <X />
+            <X size={20} />
           </button>
         </div>
 
-        <div className="nav-caption">MANAGEMENT</div>
-
         <nav>
-          {MODULES.map(([name, Icon], i) => (
+          {MODULES.map(([name, Icon]) => (
             <button
               key={name}
-              className={`nav-item ${page === name ? "selected" : ""}`}
+              className={page === name ? "nav-active" : ""}
               onClick={() => {
                 setPage(name);
                 setMobile(false);
               }}
             >
-              <Icon size={17} />
+              <Icon size={19} />
               <span>{name}</span>
-              <small>{String(i + 1).padStart(2, "0")}</small>
             </button>
           ))}
         </nav>
 
-        <button className="logout" onClick={logout}>
-          <LogOut size={17} /> Logout
+        <button className="logout-button" onClick={logout}>
+          <LogOut size={18} />
+          Logout
         </button>
       </aside>
 
-      <main className="main">
-        <header className="top">
+      <main className="main-area">
+        <header className="topbar">
           <button
-            className="icon-btn mobile-open"
-            onClick={() => setMobile(true)}
+            className="menu-button"
+            onClick={() => setMobile(!mobile)}
           >
-            <Menu />
+            <Menu size={23} />
           </button>
 
           <div>
-            <h2>{page}</h2>
-            <small>BD GAME ADMIN / {page}</small>
+            <strong>{page}</strong>
+            <small>BD GAME Administration</small>
           </div>
 
-          <div className="owner">
-            <Crown size={17} /> OWNER ADMIN
+          <div className="admin-status">
+            <span className="online-dot" />
+            Admin Online
           </div>
-
-          <button
-            className="icon-btn"
-            onClick={loadData}
-            title="Refresh"
-          >
-            <RefreshCw size={17} />
-          </button>
         </header>
 
-        {content}
-
-        <footer>
-          BD GAME ADMIN © 2026 · Private Admin Console
-        </footer>
+        {content()}
       </main>
 
       {notice && <div className="toast">{notice}</div>}
@@ -1365,43 +1057,43 @@ function App() {
   );
 }
 
-function Stat({ icon, label, value }) {
+function Stat({ title, value, icon: Icon }) {
   return (
-    <div className="stat">
-      <div>{icon}</div>
-      <span>{label}</span>
-      <b>{value}</b>
+    <div className="stat-card">
+      <div>
+        <small>{title}</small>
+        <h2>{value}</h2>
+      </div>
+      <Icon size={28} />
     </div>
   );
 }
 
-function DataTable({ headers, rows }) {
+function DataTable({ columns = [], rows = [] }) {
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
-            {headers.map(h => (
-              <th key={h}>{h}</th>
+            {columns.map((column, index) => (
+              <th key={index}>{column}</th>
             ))}
           </tr>
         </thead>
 
         <tbody>
-          {rows.length ? (
-            rows.map((r, i) => (
-              <tr key={i}>
-                {r.map((c, j) => (
-                  <td key={j}>{c}</td>
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length}>No data available</td>
+            </tr>
+          ) : (
+            rows.map((row, index) => (
+              <tr key={index}>
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex}>{cell}</td>
                 ))}
               </tr>
             ))
-          ) : (
-            <tr>
-              <td colSpan={headers.length}>
-                কোনো তথ্য পাওয়া যায়নি
-              </td>
-            </tr>
           )}
         </tbody>
       </table>
