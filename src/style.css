@@ -1437,4 +1437,95 @@ footer {
   .master-header-icon svg {
     width: 26px;
   }
+} /* ===== MY LIFE PARTNER DASHBOARD PHOTO ===== */
+
+.dashboard-photo-page {
+  min-height: calc(100vh - 110px);
+  padding: 15px;
+  border-radius: 16px;
+  background-color: #071326;
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+}
+
+.dashboard-partner-hero {
+  position: relative;
+  min-height: 300px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 28px 18px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  border: 1px solid #f5c451;
+  border-radius: 17px;
+  background: linear-gradient(145deg, #173c60, #071326);
+  box-shadow: 0 15px 40px #0008;
+}
+
+.dashboard-partner-hero h1 {
+  position: relative;
+  z-index: 2;
+  margin: 0;
+  color: #ffe19a;
+  font-size: clamp(25px, 5vw, 42px);
+  text-align: center;
+  font-weight: 800;
+  text-shadow: 0 3px 15px #000;
+}
+
+.dashboard-photo-upload {
+  position: absolute;
+  z-index: 5;
+  top: 13px;
+  right: 13px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 13px;
+  color: #171b24;
+  background: #f5c451;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dashboard-photo-upload input {
+  display: none;
+}
+
+.dashboard-photo-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: white;
+  text-align: center;
+}
+
+.dashboard-photo-placeholder svg {
+  color: #f5c451;
+}
+
+.dashboard-photo-placeholder small {
+  color: #c5d5e8;
+}
+
+.dashboard-photo-page .stats {
+  margin-bottom: 18px;
+}
+
+@media (max-width: 600px) {
+  .dashboard-photo-page {
+    padding: 8px;
+  }
+
+  .dashboard-partner-hero {
+    min-height: 245px;
+  }
 }
