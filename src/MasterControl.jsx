@@ -83,7 +83,9 @@ export default function MasterControl() {
   const [active, setActive] = useState("entry");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [cloudStatus, setCloudStatus] = useState("Checking cloud connection...");
+  const [publishStatus, setPublishStatus] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -155,29 +157,36 @@ export default function MasterControl() {
     }));
   }
 
+  async function verifyOwner() {
+    const { data: sessionData, error: sessionError } =
+      await db.auth.getSession();
+
+    if (sessionError) throw sessionError;
+
+    const session = sessionData?.session;
+
+    if (!session || session.user.id !== OWNER_ID) {
+      throw new Error("Owner Admin session পাওয়া যায়নি।");
+    }
+
+    const { data: adminCheck, error: adminError } =
+      await db.rpc("is_admin");
+
+    if (adminError) throw adminError;
+
+    if (adminCheck !== true) {
+      throw new Error("Admin permission নেই।");
+    }
+
+    return session;
+  }
+
   async function saveDraft() {
     setSaving(true);
     setError("");
 
     try {
-      const { data: sessionData, error: sessionError } =
-        await db.auth.getSession();
-
-      if (sessionError) throw sessionError;
-
-      const session = sessionData?.session;
-
-      if (!session || session.user.id !== OWNER_ID) {
-        throw new Error("Owner Admin session পাওয়া যায়নি।");
-      }
-
-      const { data: adminCheck, error: adminError } =
-        await db.rpc("is_admin");
-
-      if (adminError) throw adminError;
-      if (adminCheck !== true) {
-        throw new Error("Admin permission নেই।");
-      }
+      const session = await verifyOwner();
 
       const { error: saveError } = await db
         .from("game_admin_settings")
@@ -206,6 +215,49 @@ export default function MasterControl() {
       alert("Cloud Save হয়নি: " + (err.message || "Unknown error"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function publishToPlayerGame() {
+    setPublishing(true);
+    setError("");
+    setPublishStatus("Publishing...");
+
+    try {
+      const session = await verifyOwner();
+
+      // Only public gameplay settings are published.
+      // Private Admin and AI settings are not included.
+      const publicSettings = {
+        entry: draft.entry,
+        routing: draft.routing,
+        buttons: draft.buttons,
+        visual: draft.visual,
+        gameMode: draft.gameMode
+      };
+
+      const { error: publishError } = await db
+        .from("game_live_settings")
+        .upsert(
+          {
+            id: "global",
+            settings: publicSettings,
+            published_by: session.user.id,
+            published_at: new Date().toISOString()
+          },
+          { onConflict: "id" }
+        );
+
+      if (publishError) throw publishError;
+
+      setPublishStatus("Published successfully");
+      alert("Player Game-এ Settings Publish হয়েছে!");
+    } catch (err) {
+      setPublishStatus("Publish Failed");
+      setError(err.message || "Publish failed");
+      alert("Publish হয়নি: " + (err.message || "Unknown error"));
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -434,6 +486,14 @@ export default function MasterControl() {
           margin: 12px 0;
         }
         .master-control .error { color: #ffaaaa; }
+        .master-control .publish-button {
+          background: #16834a;
+          margin-left: 8px;
+        }
+        .master-control .publish-status {
+          color: #8df5b5;
+          margin-top: 10px;
+        }
       `}</style>
 
       <h1>MASTER CONTROL</h1>
@@ -462,13 +522,27 @@ export default function MasterControl() {
         {renderModule()}
       </div>
 
-      <button onClick={saveDraft} disabled={loading || saving}>
-        {saving ? "Saving..." : "Save to Cloud"}
-      </button>
+      <div className="action-buttons">
+        <button onClick={saveDraft} disabled={loading || saving || publishing}>
+          {saving ? "Saving..." : "Save to Cloud"}
+        </button>
+
+        <button
+          className="publish-button"
+          onClick={publishToPlayerGame}
+          disabled={loading || saving || publishing}
+        >
+          {publishing ? "Publishing..." : "Publish to Player Game"}
+        </button>
+      </div>
+
+      {publishStatus && (
+        <p className="publish-status">{publishStatus}</p>
+      )}
 
       <p>
-        Settings are stored in the Admin database.
-        Player Game live integration is a separate step.
+        Admin settings are stored privately.
+        Public gameplay settings are published separately to Player Game.
       </p>
     </div>
   );
