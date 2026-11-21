@@ -1,4 +1,5 @@
-import MapManagement from "./MapManagement"; import React, { useEffect, useMemo, useState } from "react";
+import MapManagement from "./MapManagement";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -32,48 +33,48 @@ const PLAYER_API =
   "https://bd-game.shohagkhan017500411.workers.dev/api/admin/players";
 
 const MODULES = [
-  ["Game Dashboard", LayoutDashboard],
+  ["Dashboard", LayoutDashboard],
   ["Player Management", Users],
+  ["Diamond Management", Gem],
+  ["Reward Orders", History],
   ["Character Management", UserCog],
-  ["Outfit & Skin Management", Palette],
-  ["Weapon Control", Sword],
+  ["Outfit Management", Palette],
+  ["Weapons Management", Sword],
   ["Map Management", Map],
-  ["Game Mode Management", Gamepad2],
-  ["Room & Match Management", Activity],
-  ["Diamond & Coin Management", Gem],
-  ["Game Shop Management", ShoppingBag],
-  ["Event & Mission Management", Sparkles],
-  ["Rank & Leaderboard Management", Trophy],
-  ["Chat & Support Management", MessageCircle],
-  ["Notification Management", Bell],
-  ["Intro & Lobby Management", Gamepad2],
-  ["Game Update Management", Activity],
-  ["Security & Reports Management", ShieldCheck],
-  ["Game Settings Management", Settings],
-  ["Emote Management", Sparkles],
-  ["Animation Management", Activity],
-  ["Diamond Send Management", Send],
-  ["AI System", Sparkles]
+  ["Game Modes", Gamepad2],
+  ["Room Management", Activity],
+  ["Shop Management", ShoppingBag],
+  ["Event Management", Sparkles],
+  ["Rank Settings", Trophy],
+  ["Support Tickets", MessageCircle],
+  ["Notifications", Bell],
+  ["Lobby Management", Gamepad2],
+  ["Intro Management", Sparkles],
+  ["Update Management", RefreshCw],
+  ["Security Reports", ShieldCheck],
+  ["Emotes Management", Sparkles],
+  ["Animations Management", Activity],
+  ["AI & Game Settings", Settings]
 ];
 
 const MODULE_TABLES = {
   "Character Management": "game_characters",
-  "Outfit & Skin Management": "game_outfits",
-  "Weapon Control": "game_weapons",
+  "Outfit Management": "game_outfits",
+  "Weapons Management": "game_weapons",
   "Map Management": "game_maps",
-  "Game Mode Management": "game_modes",
-  "Room & Match Management": "game_rooms",
-  "Game Shop Management": "game_shop_items",
-  "Event & Mission Management": "game_events",
-  "Rank & Leaderboard Management": "game_rank_settings",
-  "Chat & Support Management": "game_support_tickets",
-  "Notification Management": "game_notifications",
-  "Intro & Lobby Management": "game_lobby_settings",
-  "Game Update Management": "game_updates",
-  "Security & Reports Management": "game_security_reports",
-  "Emote Management": "game_emotes",
-  "Animation Management": "game_animations",
-  "Diamond Send Management": "game_diamond_transfers"
+  "Game Modes": "game_modes",
+  "Room Management": "game_rooms",
+  "Shop Management": "game_shop_items",
+  "Event Management": "game_events",
+  "Rank Settings": "game_rank_settings",
+  "Support Tickets": "game_support_tickets",
+  "Notifications": "game_notifications",
+  "Lobby Management": "game_lobby_settings",
+  "Update Management": "game_updates",
+  "Security Reports": "game_security_reports",
+  "Emotes Management": "game_emotes",
+  "Animations Management": "game_animations",
+  "Intro Management": "game_lobby_settings"
 };
 
 const PLANS = [
@@ -109,7 +110,7 @@ function App() {
   const [busy, setBusy] = useState(true);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [page, setPage] = useState("Game Dashboard");
+  const [page, setPage] = useState("Dashboard");
   const [mobile, setMobile] = useState(false);
   const [notice, setNotice] = useState("");
   const [query, setQuery] = useState("");
@@ -121,6 +122,7 @@ function App() {
       return "";
     }
   });
+
   const [dashboardImagePath, setDashboardImagePath] = useState(() => {
     try {
       return localStorage.getItem("bd_game_dashboard_image_path") || "";
@@ -163,7 +165,12 @@ function App() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp"
+    ];
+
     if (!allowedTypes.includes(file.type)) {
       notify("Please select a JPG, PNG, or WebP image.");
       event.target.value = "";
@@ -178,52 +185,92 @@ function App() {
 
     try {
       if (!db) throw new Error("Supabase is not configured.");
-      const { data: userData, error: userError } = await db.auth.getUser();
-      if (userError) throw userError;
-      const user = userData?.user;
-      if (!user) throw new Error("Please sign in as admin first.");
 
-      const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-      const path = `${user.id}/dashboard-${Date.now()}.${extension}`;
-      const { error: uploadError } = await db.storage.from("admin-dashboard").upload(path, file, {
-        upsert: true,
-        contentType: file.type
-      });
+      const { data: userData, error: userError } =
+        await db.auth.getUser();
+
+      if (userError) throw userError;
+
+      const user = userData?.user;
+      if (!user) {
+        throw new Error("Please sign in as admin first.");
+      }
+
+      const extension =
+        file.type === "image/png"
+          ? "png"
+          : file.type === "image/webp"
+          ? "webp"
+          : "jpg";
+
+      const path =
+        `${user.id}/dashboard-${Date.now()}.${extension}`;
+
+      const { error: uploadError } = await db.storage
+        .from("admin-dashboard")
+        .upload(path, file, {
+          upsert: true,
+          contentType: file.type
+        });
+
       if (uploadError) throw uploadError;
 
-      const { data: signedData, error: signedError } = await db.storage
-        .from("admin-dashboard").createSignedUrl(path, 604800);
+      const { data: signedData, error: signedError } =
+        await db.storage
+          .from("admin-dashboard")
+          .createSignedUrl(path, 604800);
+
       if (signedError) throw signedError;
 
-      localStorage.setItem("bd_game_dashboard_image_path", path);
+      localStorage.setItem(
+        "bd_game_dashboard_image_path",
+        path
+      );
+
       localStorage.removeItem("bd_game_dashboard_image");
+
       setDashboardImagePath(path);
       setDashboardImage(signedData.signedUrl);
+
       notify("Dashboard photo uploaded successfully.");
     } catch (error) {
       console.error("Dashboard image upload failed:", error);
-      notify(error?.message || "Could not upload dashboard photo.");
+      notify(
+        error?.message || "Could not upload dashboard photo."
+      );
     } finally {
       event.target.value = "";
     }
   }
 
-
   useEffect(() => {
     if (!db || !session || !dashboardImagePath) return;
+
     let cancelled = false;
+
     async function restoreDashboardImage() {
-      const { data, error } = await db.storage.from("admin-dashboard")
+      const { data, error } = await db.storage
+        .from("admin-dashboard")
         .createSignedUrl(dashboardImagePath, 604800);
+
       if (cancelled) return;
+
       if (error) {
-        console.error("Could not restore dashboard photo:", error);
+        console.error(
+          "Could not restore dashboard photo:",
+          error
+        );
         return;
       }
+
       setDashboardImage(data.signedUrl);
     }
+
     restoreDashboardImage();
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+    };
   }, [session, dashboardImagePath]);
 
   useEffect(() => {
@@ -251,17 +298,21 @@ function App() {
 
     checkSession();
 
-    const { data: listener } = db.auth.onAuthStateChange(
-      async (_event, nextSession) => {
-        if (!nextSession) {
-          setSession(null);
-          return;
-        }
+    const { data: listener } =
+      db.auth.onAuthStateChange(
+        async (_event, nextSession) => {
+          if (!nextSession) {
+            setSession(null);
+            return;
+          }
 
-        const allowed = await verifyAdmin(nextSession);
-        if (allowed) setSession(nextSession);
-      }
-    );
+          const allowed = await verifyAdmin(nextSession);
+
+          if (allowed) {
+            setSession(nextSession);
+          }
+        }
+      );
 
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -269,7 +320,9 @@ function App() {
   async function verifyAdmin(currentSession) {
     if (!currentSession?.user) return false;
 
-    if (currentSession.user.id === OWNER_ID) return true;
+    if (currentSession.user.id === OWNER_ID) {
+      return true;
+    }
 
     const { data, error } = await db.rpc("is_admin");
 
@@ -292,10 +345,11 @@ function App() {
     setBusy(true);
 
     try {
-      const { data, error } = await db.auth.signInWithPassword({
-        email: loginEmail.trim(),
-        password: loginPassword
-      });
+      const { data, error } =
+        await db.auth.signInWithPassword({
+          email: loginEmail.trim(),
+          password: loginPassword
+        });
 
       if (error) throw error;
 
@@ -303,11 +357,14 @@ function App() {
 
       if (!allowed) {
         await db.auth.signOut();
-        throw new Error("এই অ্যাকাউন্টের Admin অনুমতি নেই।");
+        throw new Error(
+          "এই অ্যাকাউন্টের Admin অনুমতি নেই।"
+        );
       }
 
       setSession(data.session);
       await loadData();
+
       notify("Admin login successful.");
     } catch (error) {
       notify(error.message || "Login failed.");
@@ -329,14 +386,17 @@ function App() {
       }
     );
 
-    if (error) notify(error.message);
-    else notify("Password reset email পাঠানো হয়েছে।");
+    if (error) {
+      notify(error.message);
+    } else {
+      notify("Password reset email পাঠানো হয়েছে।");
+    }
   }
 
   async function logout() {
     await db.auth.signOut();
     setSession(null);
-    setPage("Game Dashboard");
+    setPage("Dashboard");
     notify("Logged out.");
   }
 
@@ -344,19 +404,23 @@ function App() {
     if (!db) return;
 
     const requests = await Promise.all([
-      db.from("game_players").select("*").order("created_at", {
-        ascending: false
-      }),
+      db.from("game_players")
+        .select("*")
+        .order("created_at", { ascending: false }),
+
       db.from("player_roles").select("*"),
-      db.from("reward_orders").select("*").order("created_at", {
-        ascending: false
-      }),
-      db.from("diamond_distributions").select("*").order("created_at", {
-        ascending: false
-      }),
-      db.from("player_role_history").select("*").order("created_at", {
-        ascending: false
-      })
+
+      db.from("reward_orders")
+        .select("*")
+        .order("created_at", { ascending: false }),
+
+      db.from("diamond_distributions")
+        .select("*")
+        .order("created_at", { ascending: false }),
+
+      db.from("player_role_history")
+        .select("*")
+        .order("created_at", { ascending: false })
     ]);
 
     setPlayers(requests[0].data || []);
@@ -387,7 +451,9 @@ function App() {
       const result = await response.json();
 
       setAppwritePlayers(
-        Array.isArray(result) ? result : result.players || []
+        Array.isArray(result)
+          ? result
+          : result.players || []
       );
 
       setPlayerApiStatus("Connected");
@@ -447,7 +513,11 @@ function App() {
 
       if (result.error) throw result.error;
 
-      notify(moduleEditingId ? "Updated successfully." : "Added successfully.");
+      notify(
+        moduleEditingId
+          ? "Updated successfully."
+          : "Added successfully."
+      );
 
       setModuleDraft({
         name: "",
@@ -466,7 +536,9 @@ function App() {
   }
 
   async function deleteModuleItem(id) {
-    if (!window.confirm("এই তথ্যটি মুছে ফেলতে চান?")) return;
+    if (!window.confirm("এই তথ্যটি মুছে ফেলতে চান?")) {
+      return;
+    }
 
     const table = MODULE_TABLES[page];
 
@@ -504,10 +576,12 @@ function App() {
       return;
     }
 
-    const { error } = await db.from("game_players").insert([{
-      player_name: playerName.trim(),
-      player_uid: playerUid.trim()
-    }]);
+    const { error } = await db
+      .from("game_players")
+      .insert([{
+        player_name: playerName.trim(),
+        player_uid: playerUid.trim()
+      }]);
 
     if (error) {
       notify(error.message);
@@ -528,10 +602,12 @@ function App() {
       return;
     }
 
-    const { error } = await db.from("player_roles").insert([{
-      player_id: orderPlayer,
-      role_name: roleName.trim()
-    }]);
+    const { error } = await db
+      .from("player_roles")
+      .insert([{
+        player_id: orderPlayer,
+        role_name: roleName.trim()
+      }]);
 
     if (error) {
       notify(error.message);
@@ -544,15 +620,18 @@ function App() {
   }
 
   async function removeRole(id) {
-    if (!window.confirm("এই Role সরাতে চান?")) return;
+    if (!window.confirm("এই Role সরাতে চান?")) {
+      return;
+    }
 
     const { error } = await db
       .from("player_roles")
       .delete()
       .eq("id", id);
 
-    if (error) notify(error.message);
-    else {
+    if (error) {
+      notify(error.message);
+    } else {
       notify("Role removed.");
       await loadData();
     }
@@ -561,19 +640,23 @@ function App() {
   async function createOrder(event) {
     event.preventDefault();
 
-    const selectedPlan = PLANS.find((p) => p.id === planId);
+    const selectedPlan = PLANS.find(
+      (p) => p.id === planId
+    );
 
     if (!orderPlayer || !selectedPlan) {
       notify("Player এবং Plan নির্বাচন করুন।");
       return;
     }
 
-    const { error } = await db.from("reward_orders").insert([{
-      player_id: orderPlayer,
-      plan_id: selectedPlan.id,
-      amount: selectedPlan.total,
-      status: "pending"
-    }]);
+    const { error } = await db
+      .from("reward_orders")
+      .insert([{
+        player_id: orderPlayer,
+        plan_id: selectedPlan.id,
+        amount: selectedPlan.total,
+        status: "pending"
+      }]);
 
     if (error) {
       notify(error.message);
@@ -607,13 +690,23 @@ function App() {
         }]);
 
       if (distributionError) {
-        notify("Order approved, but distribution failed: " + distributionError.message);
+        notify(
+          "Order approved, but distribution failed: " +
+          distributionError.message
+        );
         await loadData();
-        return;notify(approved ? "Order approved." : "Order rejected.");
-    await loadData();
-  }
+        return;
+      }
+    }
 
-  function dashboard() {
+    notify(
+      approved
+        ? "Order approved."
+        : "Order rejected."
+    );
+
+    await loadData();
+  }function dashboard() {
     return (
       <div
         className="page-content dashboard-photo-page"
@@ -626,7 +719,6 @@ function App() {
           <label className="dashboard-photo-upload">
             <Plus size={16} />
             {dashboardImage ? "Change Photo" : "Add Photo"}
-
             <input
               type="file"
               accept="image/*"
@@ -642,7 +734,7 @@ function App() {
             </div>
           )}
 
-          <h1>My Life Partner</h1>
+          <h1>BD GAME</h1>
         </section>
 
         <div className="welcome">
@@ -786,7 +878,7 @@ function App() {
   function rewardPage() {
     return (
       <div className="page-content">
-        <h1>Diamond & Coin Management</h1>
+        <h1>Diamond Management</h1>
 
         <div className="stats-grid">
           {PLANS.map((plan) => (
@@ -802,7 +894,6 @@ function App() {
 
         <div className="panel">
           <h3>Create Reward Order</h3>
-
           <form onSubmit={createOrder} className="form-grid">
             <select
               value={orderPlayer}
@@ -833,7 +924,6 @@ function App() {
 
         <div className="panel">
           <h3>Reward Orders</h3>
-
           <DataTable
             columns={["Player", "Amount", "Status", "Actions"]}
             rows={orders.map((o) => [
@@ -880,7 +970,9 @@ function App() {
         <div className="page-content">
           <h1>{page}</h1>
           <div className="panel">
-            <p>এই মডিউলের জন্য আলাদা ব্যবস্থাপনা UI এখনো তৈরি করা হয়নি।</p>
+            <p>
+              এই মডিউলের জন্য আলাদা ডেটাবেস টেবিল এখনো যুক্ত করা হয়নি।
+            </p>
           </div>
         </div>
       );
@@ -937,7 +1029,7 @@ function App() {
                   image_url: e.target.value
                 })
               }
-              placeholder="https://example.com/image.png"
+              placeholder="Image URL"
             />
 
             <label>Status</label>
@@ -1009,7 +1101,6 @@ function App() {
                     <button onClick={() => editModuleItem(item)}>
                       Edit
                     </button>
-
                     <button
                       className="danger"
                       onClick={() => deleteModuleItem(item.id)}
@@ -1027,21 +1118,20 @@ function App() {
   }
 
   function content() {
-    if (page === "Game Dashboard") return dashboard();
+    if (page === "Dashboard") return dashboard();
 
-    if (page === "Player Management") return playerPage();
+    if (page === "Player Management") {
+      return playerPage();
+    }
 
     if (
-      page === "Diamond & Coin Management" ||
-      page === "Diamond Send Management"
+      page === "Diamond Management" ||
+      page === "Reward Orders"
     ) {
       return rewardPage();
     }
 
-    if (
-      page === "AI System" ||
-      page === "Game Settings Management"
-    ) {
+    if (page === "AI & Game Settings") {
       return (
         <div className="page-content">
           <h1>{page}</h1>
